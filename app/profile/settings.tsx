@@ -1,0 +1,252 @@
+import React, { useState } from 'react';
+import { 
+  View, 
+  Text, 
+  SafeAreaView, 
+  ScrollView, 
+  TouchableOpacity, 
+  Switch, 
+  StatusBar, 
+  Platform,
+  Alert,
+  Linking 
+} from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter, Stack } from 'expo-router';
+import { supabase } from '@/lib/supabase';
+import * as Notifications from 'expo-notifications';
+
+export default function SettingsScreen() {
+  const router = useRouter();
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
+
+  const openLink = async (url: string) => {
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      await Linking.openURL(url);
+    } else {
+      Alert.alert("Error", "Don't know how to open this URL");
+    }
+  };
+
+  const toggleNotifications = async (value: boolean) => {
+    setNotificationsEnabled(value);
+
+    if (value) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        Alert.alert('Permission Denied', 'Enable notifications in system settings to receive updates.');
+        setNotificationsEnabled(false);
+        return;
+      }
+
+      try {
+        const token = (await Notifications.getExpoPushTokenAsync()).data;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase
+            .from('profiles')
+            .update({ push_token: token, notifications_enabled: true })
+            .eq('id', user.id);
+        }
+      } catch (error) {
+        console.error("Failed to get push token:", error);
+      }
+    } else {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from('profiles')
+          .update({ notifications_enabled: false })
+          .eq('id', user.id);
+      }
+    }
+  };
+
+  const handleContact = (subject: string) => {
+    const email = "support@scritt.com"; 
+    Linking.openURL(`mailto:${email}?subject=${subject}`);
+  };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to log out of Scritt?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Logout", 
+          style: "destructive", 
+          onPress: async () => {
+            await supabase.auth.signOut();
+            router.replace('/auth/signin');
+          } 
+        }
+      ]
+    );
+  };
+
+  const handleDeleteAccount = async () => {
+  Alert.alert(
+    "Delete Account",
+    "This action is permanent. Are you sure?",
+    [
+      { text: "Cancel", style: "cancel" },
+      { 
+        text: "Delete My Account", 
+        style: "destructive", 
+        onPress: async () => {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("No active session");
+
+            // Correct way to call invoke with a body
+            const { data, error } = await supabase.functions.invoke('delete-user', {
+              body: { userId: user.id }
+            });
+
+            if (error) throw error;
+
+            await supabase.auth.signOut();
+            router.replace('/auth/signin');
+            Alert.alert("Success", "Account removed.");
+          } catch (error: any) {
+            Alert.alert("Error", error.message || "Could not delete account.");
+          }
+        } 
+      }
+    ]
+  );
+};
+  return (
+    <SafeAreaView className="flex-1 bg-white">
+      <Stack.Screen options={{ headerShown: false }} />
+      <StatusBar barStyle="dark-content" />
+
+      <View 
+        style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
+        className="px-4 py-4 flex-row items-center border-b border-gray-50"
+      >
+        <TouchableOpacity onPress={() => router.back()} className="p-1 mr-4">
+          <Ionicons name="arrow-back" size={24} color="black" />
+        </TouchableOpacity>
+        <Text className="text-xl font-bold text-gray-900">Settings</Text>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} className="flex-1 px-4">
+        <View className="mt-6">
+          <Text className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 px-2">
+            Preferences
+          </Text>
+          <View className="bg-gray-50 rounded-2xl overflow-hidden">
+            <SettingToggle 
+              icon="notifications-outline" 
+              label="Notification" 
+              value={notificationsEnabled} 
+              onValueChange={toggleNotifications} 
+            />
+            <SettingToggle 
+              icon="moon-outline" 
+              label="Dark Mode" 
+              value={darkMode} 
+              onValueChange={setDarkMode} 
+            />
+          </View>
+        </View>
+
+        <View className="mt-8">
+          <Text className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 px-2">
+            Support & About
+          </Text>
+          <View className="bg-gray-50 rounded-2xl overflow-hidden">
+            <SettingLink icon="star-outline" label="Rate App" />
+            <SettingLink icon="share-social-outline" label="Share App" />
+            <SettingLink 
+                icon="shield-checkmark-outline" 
+                label="Privacy Policy" 
+                onPress={() => router.push("/privacy-policy")} 
+              />
+            <SettingLink 
+              icon="document-text-outline" 
+              label="Terms and Conditions" 
+              onPress={() => router.push("/terms-and-conditions")}
+            />
+           <SettingLink 
+                icon="analytics-outline" 
+                label="Cookies Policy" 
+                onPress={() => router.push("/cookies-policy")} 
+              />
+          </View>
+        </View>
+
+        <View className="mt-8">
+          <Text className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 px-2">
+            Reach Out
+          </Text>
+          <View className="bg-gray-50 rounded-2xl overflow-hidden">
+            <SettingLink icon="mail-outline" label="Contact" onPress={() => handleContact("Support Request")} />
+            <SettingLink icon="chatbubble-ellipses-outline" label="Feedback" onPress={() => handleContact("App Feedback")} />
+          </View>
+        </View>
+
+        <View className="mt-10 mb-10 px-2">
+          <TouchableOpacity 
+            onPress={handleLogout}
+            className="flex-row items-center justify-center py-4 bg-gray-50 rounded-2xl mb-3"
+          >
+            <Ionicons name="log-out-outline" size={22} color="#4B5563" />
+            <Text className="ml-2 text-gray-700 font-bold">Logout</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+          onPress={() => router.push('/profile/delete-account')}
+          className="flex-row items-center justify-center py-4 bg-red-50 rounded-2xl mb-3"
+        >
+          <Ionicons name="trash-outline" size={22} color="#dc2626" />
+          <Text className="ml-3 text-red-600 font-semibold">Delete Account</Text>
+        </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function SettingToggle({ icon, label, value, onValueChange }: any) {
+  return (
+    <View className="flex-row items-center justify-between px-4 py-4 border-b border-white">
+      <View className="flex-row items-center">
+        <Ionicons name={icon} size={22} color="#374151" />
+        <Text className="ml-3 text-gray-700 font-medium">{label}</Text>
+      </View>
+      <Switch 
+        value={value} 
+        onValueChange={onValueChange}
+        trackColor={{ false: "#d1d5db", true: "#16a34a" }}
+        thumbColor={Platform.OS === 'ios' ? undefined : "#ffffff"}
+      />
+    </View>
+  );
+}
+
+function SettingLink({ icon, label, onPress }: any) {
+  return (
+    <TouchableOpacity 
+      onPress={onPress}
+      className="flex-row items-center justify-between px-4 py-4 border-b border-white"
+    >
+      <View className="flex-row items-center">
+        <Ionicons name={icon} size={22} color="#374151" />
+        <Text className="ml-3 text-gray-700 font-medium">{label}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+    </TouchableOpacity>
+  );
+}

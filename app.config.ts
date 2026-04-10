@@ -13,7 +13,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     }
     },
   android: {
-    package: "com.empress1.scritt", // This must be unique
+    package: "com.adesegunadetutu.scritt", // This must be unique
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
       backgroundColor: "#ffffff"
@@ -28,11 +28,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     ...config.extra,
     eas: {
-      projectId: "dbdb70ca-2a99-421f-8133-8ed1573542af"
+      projectId: "33ac3f0b-27ed-45ad-8d92-c0a681d5aca6"
     }
   },
   updates: {
-    url: "https://u.expo.dev/dbdb70ca-2a99-421f-8133-8ed1573542af"
+    url: "https://u.expo.dev/33ac3f0b-27ed-45ad-8d92-c0a681d5aca6"
   },
   runtimeVersion: {
     policy: "appVersion"

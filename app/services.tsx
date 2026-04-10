@@ -81,28 +81,39 @@ export default function ServicesScreen() {
     }, [selectedCat, isConnected])
   );
 
-  // 2. REALTIME: Listens for changes while the user is actively on this screen
-  useEffect(() => {
-    if (!isConnected) return;
-    const channel = supabase
-      .channel('services-updates')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'services' },
-        (payload) => {
-          const newService = payload.new;
-          // Logic: Only add to UI if it matches the current category filter
-          if (selectedCat === "All" || newService.category === selectedCat) {
-            setServices((current) => [newService, ...current]);
-          }
-        }
-      )
-      .subscribe();
+ // 2. REALTIME: Listens for changes while the user is actively on this screen
+useEffect(() => {
+  if (!isConnected) return;
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedCat, isConnected]);
+  // Create the channel and chain the .on BEFORE the .subscribe
+  const channel = supabase
+    .channel('services-updates')
+    .on(
+      'postgres_changes',
+      { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'services' 
+      },
+      (payload) => {
+        const newService = payload.new;
+        // Logic: Only add to UI if it matches the current category filter
+        if (selectedCat === "All" || newService.category === selectedCat) {
+          setServices((current) => [newService, ...current]);
+        }
+      }
+    )
+    .subscribe((status) => {
+      if (status !== 'SUBSCRIBED') {
+        console.warn("Realtime subscription status:", status);
+      }
+    });
+
+  return () => {
+    // Clean up the specific channel
+    supabase.removeChannel(channel);
+  };
+}, [selectedCat, isConnected]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

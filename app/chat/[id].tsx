@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { getSupabaseImage } from '@/utils/getSupabaseImage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // --- 1️⃣ MEMOIZED MESSAGE COMPONENT ---
 const MemoizedMessage = React.memo(({ item, currentUserId, onLongPress, onImagePress }: any) => {
@@ -72,6 +73,7 @@ const MemoizedMessage = React.memo(({ item, currentUserId, onLongPress, onImageP
 // --- 2️⃣ MAIN CHATROOM COMPONENT ---
 export default function ChatRoom() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { id: conversationId, topic: initialTopic, prefillTitle, prefillImage, table: originTable, initialMessage } = useLocalSearchParams();
 
   const [messages, setMessages] = useState<any[]>([]);
@@ -386,7 +388,7 @@ export default function ChatRoom() {
           initialNumToRender={15}
         />
 
-        <View className="flex-row items-center p-3 bg-white border-t border-gray-200 pb-8">
+        <View className="flex-row items-center p-3 bg-white border-t border-gray-200">
           {editingMessage ? (
             <TouchableOpacity onPress={() => { setEditingMessage(null); setNewMessage(''); }} className="mr-3">
               <Ionicons name="close-circle" size={28} color="#ef4444" />
@@ -397,7 +399,11 @@ export default function ChatRoom() {
             </TouchableOpacity>
           )}
 
-          <View className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 mr-2">
+          <View 
+          style={{ 
+            paddingBottom: Platform.OS === 'android' ? Math.max(insets.bottom, 12) : insets.bottom 
+          }}
+          className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 mr-2">
             <TextInput
               placeholder={editingMessage ? "Edit message..." : "Message"}
               placeholderTextColor="#9CA3AF"

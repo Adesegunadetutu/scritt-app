@@ -208,14 +208,16 @@ export default function HomeScreen() {
   fetchListings();
   fetchUserData();
 
-  let notificationSub: any;
   let listingsSub: any;
+  let userSub: any; // Combine Profile and Notifications here
 
   const setupSubscriptions = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user;
 
+    // 1. Public Listings (Broadcast to everyone)
     listingsSub = supabase
-      .channel(`public-listings-${Date.now()}`) // ✅ unique name
+      .channel('public-listings')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'listings' },
@@ -224,8 +226,10 @@ export default function HomeScreen() {
       .subscribe();
 
     if (user) {
-      notificationSub = supabase
-        .channel(`home-notification-${user.id}-${Date.now()}`) // ✅ unique
+      // 2. Private User Data (Combined into ONE channel)
+      userSub = supabase
+        .channel(`user-updates-${user.id}`)
+        // Add Notification Listener
         .on(
           'postgres_changes',
           {
@@ -236,6 +240,20 @@ export default function HomeScreen() {
           },
           () => fetchUserData()
         )
+        // Add Profile Listener (Registering BOTH before calling .subscribe())
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (payload.new.avatar_url) setUserAvatar(payload.new.avatar_url);
+            if (payload.new.full_name) setFirstName(payload.new.full_name.split(' ')[0]);
+          }
+        )
         .subscribe();
     }
   };
@@ -243,8 +261,8 @@ export default function HomeScreen() {
   setupSubscriptions();
 
   return () => {
-    if (notificationSub) supabase.removeChannel(notificationSub);
     if (listingsSub) supabase.removeChannel(listingsSub);
+    if (userSub) supabase.removeChannel(userSub);
   };
 }, []); // ✅ REMOVE fetchListingsno
 
@@ -454,10 +472,10 @@ export default function HomeScreen() {
         </View>
       </View>
     );
-  }, [storeLoading, featured, categories, firstName, userAvatar, hasUnread, selectedCategorySlug, router]);
+  }, [storeLoading, featured, categories, firstName, userAvatar, hasUnread, selectedCategorySlug, router, activeIndex]);
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-app-bg">
       <StatusBar barStyle="dark-content" />
       <Header />
       <FlashList

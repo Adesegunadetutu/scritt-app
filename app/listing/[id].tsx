@@ -180,15 +180,20 @@ export default function ListingDetails() {
   };
 
   const renderImageItem = ({ item }: { item: string }) => (
-    <View style={{ width: screenWidth - 32, marginRight: 16}}>
-      <Image
-        source={{ uri: getSupabaseImage(item, targetTable) }}
-        style={{ width: '100%', height: 250 }}
-        className="rounded-[24px]"
-        resizeMode="cover"
-      />
-    </View>
-  );
+  <View style={{ width: screenWidth - 32, marginRight: 16 }}>
+    <Image
+      source={{ uri: getSupabaseImage(item, targetTable) }}
+      // Use aspectRatio instead of just height for a more natural feel
+      style={{ 
+        width: '100%', 
+        aspectRatio: 1, // A square ratio is often best for mixed uploads
+        maxHeight: 400  // Prevents portrait photos from becoming too tall
+      }}
+      className="rounded-[32px] bg-gray-100"
+      resizeMode="cover" // Cover is still best for UI, but the ratio helps it look better
+    />
+  </View>
+);
 
   return (
     <SafeAreaView className="flex-1 bg-app-bg">
@@ -221,20 +226,23 @@ export default function ListingDetails() {
               {/* IMAGE SLIDER */}
               <View>
                 <FlatList
-                  data={listing?.slider_images || []}
-                  renderItem={renderImageItem}
-                  horizontal
-                  snapToInterval={screenWidth - 16} 
-                  snapToAlignment="start" 
-                  decelerationRate="fast"
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingRight: 16 }} 
-                  onScroll={(e) => {
-                    const offset = e.nativeEvent.contentOffset.x;
-                    setActiveImageIndex(Math.round(offset / (screenWidth - 32)));
-                  }}
-                  keyExtractor={(_, index) => index.toString()}
-                />
+              data={listing?.slider_images || []}
+              renderItem={renderImageItem}
+              horizontal
+              // Use screenWidth - 16 to account for the padding/margin layout
+              snapToInterval={screenWidth - 16} 
+              snapToAlignment="start" 
+              decelerationRate="fast"
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16} // Improves scroll tracking accuracy
+              onScroll={(e) => {
+                const offset = e.nativeEvent.contentOffset.x;
+                // Calculate index based on the actual interval used
+                const index = Math.round(offset / (screenWidth - 16));
+                setActiveImageIndex(index);
+              }}
+              keyExtractor={(_, index) => index.toString()}
+            />
                 
                 {listing?.slider_images?.length > 1 && (
                   <View className="flex-row justify-center mt-4">
@@ -306,13 +314,25 @@ export default function ListingDetails() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <TouchableOpacity 
-                  onPress={() => router.push(`/profile/my-listings`)}
-                  className="bg-primary rounded-[24px] p-4 flex-row items-center mt-8 justify-center shadow-lg"
-                >
-                  <Settings size={20} color="white" />
-                  <Text className="text-white font-bold ml-3 text-lg">Manage Listing</Text>
-                </TouchableOpacity>
+               <TouchableOpacity 
+  onPress={() => router.push(`/profile/my-listings`)}
+  activeOpacity={0.7}
+  // Added 'self-center' to stop it from stretching, and 'px-10' for a balanced pill shape
+  className="bg-primary self-center flex-row items-center px-10 py-3.5 rounded-full mt-8 shadow-md"
+  style={{
+    // Subtle elevation for Android/iOS shadow depth
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  }}
+>
+  <Settings size={18} color="white" strokeWidth={2.5} />
+  <Text className="text-white font-extrabold ml-3 text-[15px] tracking-wide">
+    Manage Listing
+  </Text>
+</TouchableOpacity>
               )}
 
               {/* MORE FROM SELLER */}

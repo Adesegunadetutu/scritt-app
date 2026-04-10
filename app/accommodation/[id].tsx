@@ -109,23 +109,29 @@ export default function AccommodationDetails() {
       <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
         
         {/* 2. MAIN IMAGE CARD */}
-        <View className="px-4 mt-2"> 
-          <TouchableOpacity 
-            activeOpacity={0.9}
-            onPress={() => {
-              setSelectedImage(`${BUCKET_URL}${item.images?.[0]}`);
-              setIsPreviewVisible(true);
-            }}
-            className="w-full h-60 rounded-[24px] overflow-hidden bg-gray-100 shadow-sm border border-gray-100"
-          >
-            <Image
-              source={{ uri: `${BUCKET_URL}${item.images?.[0]}` }}
-              style={{ width: '100%', height: 250 }}
-              contentFit="cover"
-              transition={300}
-            />
-          </TouchableOpacity>
-        </View>
+        {/* 2. MAIN IMAGE (Hero Section) */}
+<View className="px-4 mt-2"> 
+  <TouchableOpacity 
+    activeOpacity={0.9}
+    onPress={() => {
+      setSelectedImage(`${BUCKET_URL}${item.images?.[0]}`);
+      setIsPreviewVisible(true);
+    }}
+    className="w-full rounded-[32px] overflow-hidden bg-gray-100 shadow-sm border border-gray-100"
+    style={{ aspectRatio: 1.2 }} // Slightly taller than wide to show more room detail
+  >
+    <Image
+      source={{ uri: `${BUCKET_URL}${item.images?.[0]}` }}
+      style={{ width: '100%', height: '100%' }}
+      contentFit="cover"
+      transition={300}
+    />
+    {/* Image Count Badge */}
+    <View className="absolute bottom-4 right-4 bg-black/50 px-3 py-1 rounded-full">
+      <Text className="text-white text-[10px] font-bold">1 / {item.images?.length}</Text>
+    </View>
+  </TouchableOpacity>
+</View>
 
         <View className="px-6 py-6">
           {/* Title & Location */}
@@ -136,13 +142,30 @@ export default function AccommodationDetails() {
           </View>
 
           {/* Feature Icons */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-8">
-            <FeatureIcon icon="home-outline" label={item.category} />
-            <FeatureIcon icon="water-outline" label={item.water_available ? "Water Inc." : "No Water"} />
-            <FeatureIcon icon="flash-outline" label={item.electricity} />
-            <FeatureIcon icon="people-outline" label={`${item.number_of_tenants} Tenants`} />
-            {item.furniture?.includes("Wardrobe") && <FeatureIcon icon="wardrobe-outline" label="Wardrobe" isMCI />}
-          </ScrollView>
+          {/* Feature Icons */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-8">
+                  <FeatureIcon icon="home-outline" label={item.category} />
+                  
+                  {/* Security Features */}
+                  {item.is_fenced && (
+                    <FeatureIcon icon="fence" label="Fenced" isMCI /> 
+                  )}
+                  {item.is_gated && (
+                    <FeatureIcon icon="shield-checkmark-outline" label="Gated" />
+                  )}
+
+                  <FeatureIcon icon="water-outline" label={item.water_available ? "Water Inc." : "No Water"} />
+                  <FeatureIcon icon="flash-outline" label={item.electricity} />
+                  <FeatureIcon icon="people-outline" label={`${item.number_of_tenants} Tenants`} />
+                  
+                  {/* Furniture Logic */}
+                  {item.furniture?.includes("Wardrobe") && (
+                    <FeatureIcon icon="wardrobe-outline" label="Wardrobe" isMCI />
+                  )}
+                  {item.furniture?.includes("Kitchen Cabinets") && (
+                    <FeatureIcon icon="countertop-outline" label="Cabinets" isMCI />
+                  )}
+                </ScrollView>
 
           {/* Safety Disclaimer */}
           {!item.profiles?.is_verified && (
@@ -164,29 +187,36 @@ export default function AccommodationDetails() {
           </View>
 
           {/* Photo Gallery Slide */}
-          <View className="mt-10">
-            <Text className="text-lg font-bold text-gray-900 mb-4">Photos</Text>
-            <FlatList
-              data={item.images}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onScroll={(e) => setActiveIndex(Math.round(e.nativeEvent.contentOffset.x / (width - 48)))}
-              keyExtractor={(_, index) => index.toString()}
-              renderItem={({ item: img }) => (
-                <TouchableOpacity 
-                  onPress={() => {
-                    setSelectedImage(`${BUCKET_URL}${img}`);
-                    setIsPreviewVisible(true);
-                  }}
-                  style={{ width: width - 48 }} 
-                  className="mr-3"
-                >
-                  <Image source={{ uri: `${BUCKET_URL}${img}` }} style={{ width: '100%', height: 220, borderRadius: 24 }} contentFit="cover" />
-                </TouchableOpacity>
-              )}
-            />
-          </View>
+          {/* Photo Gallery (Smaller Preview) */}
+<View className="mt-10">
+  <View className="flex-row justify-between items-center mb-4 px-1">
+    <Text className="text-lg font-black text-gray-900 tracking-tight">Property Gallery</Text>
+    <Text className="text-primary font-bold text-xs">{item.images?.length} Photos</Text>
+  </View>
+  
+  <FlatList
+    data={item.images}
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    keyExtractor={(_, index) => index.toString()}
+    renderItem={({ item: img }) => (
+      <TouchableOpacity 
+        onPress={() => {
+          setSelectedImage(`${BUCKET_URL}${img}`);
+          setIsPreviewVisible(true);
+        }}
+        className="mr-3 shadow-sm"
+      >
+        <Image 
+          source={{ uri: `${BUCKET_URL}${img}` }} 
+          // Making these smaller and square for a "grid-like" feel in a row
+          style={{ width: 120, height: 120, borderRadius: 20 }} 
+          contentFit="cover" 
+        />
+      </TouchableOpacity>
+    )}
+  />
+</View>
         </View>
         <View className="h-32" />
       </ScrollView>

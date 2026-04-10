@@ -2,6 +2,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Toast from "react-native-toast-message";
@@ -30,6 +31,18 @@ async function registerForPushNotificationsAsync() {
     return null;
   }
 
+  // --- NEW LOGIC START ---
+  // This extracts the projectId mentioned in the screenshot
+  const projectId =
+    Constants?.expoConfig?.extra?.eas?.projectId ??
+    Constants?.easConfig?.projectId;
+
+  if (!projectId) {
+    console.error("Project ID not found. Ensure you have a projectId in app.json");
+    return null;
+  }
+  // --- NEW LOGIC END ---
+
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
 
@@ -50,7 +63,12 @@ async function registerForPushNotificationsAsync() {
     });
   }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync();
+  // --- UPDATED CALL ---
+  // We now pass the projectId object as the documentation suggests
+  const tokenData = await Notifications.getExpoPushTokenAsync({
+    projectId,
+  });
+  
   return tokenData.data;
 }
 
@@ -121,11 +139,11 @@ function RootLayoutNav() {
 
   // 🔔 2. NOTIFICATION LISTENERS (FOREGROUND/BACKGROUND)
   useEffect(() => {
-    //console.log("🔔 Notification Effect Running. User Status:", !!user);
+    console.log("🔔 Notification Effect Running. User Status:", !!user);
 
     registerForPushNotificationsAsync().then(token => {
       if (token && user) {
-        //console.log("✅ TOKEN GENERATED:", token);
+        console.log("✅ TOKEN GENERATED:", token);
         
         supabase.from('profiles')
           .update({ push_token: token })
@@ -134,11 +152,11 @@ function RootLayoutNav() {
             if (error) {
               console.error("❌ SUPABASE ERROR:", error.message);
             } else {
-              //console.log("🚀 DATABASE UPDATED SUCCESSFULLY!");
+              console.log("🚀 DATABASE UPDATED SUCCESSFULLY!");
             }
           });
       } else {
-       // console.log("⚠️ No token or no user. Token:", !!token, "User:", !!user);
+        console.log("⚠️ No token or no user. Token:", !!token, "User:", !!user);
       }
     });
 

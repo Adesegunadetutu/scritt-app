@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -14,11 +14,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
   const [darkMode, setDarkMode] = useState(false);
 
   const openLink = async (url: string) => {
@@ -31,9 +32,15 @@ export default function SettingsScreen() {
   };
 
   const toggleNotifications = async (value: boolean) => {
-    setNotificationsEnabled(value);
+  // 1. Immediately update UI for a snappy feel
+  setNotificationsEnabled(value);
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
     if (value) {
+      // --- LOGIC FOR TURNING ON ---
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
 
@@ -48,28 +55,61 @@ export default function SettingsScreen() {
         return;
       }
 
-      try {
-        const token = (await Notifications.getExpoPushTokenAsync()).data;
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase
-            .from('profiles')
-            .update({ push_token: token, notifications_enabled: true })
-            .eq('id', user.id);
-        }
-      } catch (error) {
-        console.error("Failed to get push token:", error);
-      }
+      // Get Project ID from app.json/expo-constants
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId;
+      const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+
+      // Update Database: Enable AND save token
+      await supabase
+        .from('profiles')
+        .update({ 
+          push_token: token, 
+          notifications_enabled: true 
+        })
+        .eq('id', user.id);
+
     } else {
+      // --- LOGIC FOR TURNING OFF ---
+      // Update Database: Disable (Leave token for future use, but turn off the switch)
+      await supabase
+        .from('profiles')
+        .update({ notifications_enabled: false })
+        .eq('id', user.id);
+    }
+  } catch (error) {
+    console.error("Failed to update notification settings:", error);
+    // Revert UI if database update fails
+    setNotificationsEnabled(!value);
+    Alert.alert("Error", "Could not save your preferences. Please try again.");
+  }
+};
+
+// Place this inside your SettingsScreen component, above the return statement
+useEffect(() => {
+  const fetchSettings = async () => {
+    try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase
+        const { data, error } = await supabase
           .from('profiles')
-          .update({ notifications_enabled: false })
-          .eq('id', user.id);
+          .select('notifications_enabled')
+          .eq('id', user.id)
+          .single();
+        
+        if (error) throw error;
+        
+        // If the database says FALSE, this will turn the switch OFF
+        if (data) {
+          setNotificationsEnabled(data.notifications_enabled);
+        }
       }
+    } catch (error) {
+      console.error("Error fetching notification status:", error);
     }
   };
+
+  fetchSettings();
+}, []); // The empty array [] means "run once when the page opens"
 
   const handleContact = (subject: string) => {
     const email = "support@scritt.com"; 
@@ -77,55 +117,43 @@ export default function SettingsScreen() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to log out of Scritt?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Logout", 
-          style: "destructive", 
-          onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace('/auth/signin');
-          } 
-        }
-      ]
-    );
-  };
-
-  const handleDeleteAccount = async () => {
   Alert.alert(
-    "Delete Account",
-    "This action is permanent. Are you sure?",
+    "Logout",
+    "Are you sure you want to log out of Scritt?",
     [
       { text: "Cancel", style: "cancel" },
       { 
-        text: "Delete My Account", 
+        text: "Logout", 
         style: "destructive", 
         onPress: async () => {
           try {
+            // 1. Get the current user session
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error("No active session");
 
-            // Correct way to call invoke with a body
-            const { data, error } = await supabase.functions.invoke('delete-user', {
-              body: { userId: user.id }
-            });
+            if (user) {
+              // 2. Clear the push token from the user's profile in the DB
+              await supabase
+                .from('profiles') // Adjust table name if yours is 'users'
+                .update({ push_token: null }) 
+                .eq('id', user.id);
+            }
 
-            if (error) throw error;
-
+            // 3. Perform actual sign out and redirect
             await supabase.auth.signOut();
             router.replace('/auth/signin');
-            Alert.alert("Success", "Account removed.");
-          } catch (error: any) {
-            Alert.alert("Error", error.message || "Could not delete account.");
+          } catch (error) {
+            console.error("Error during logout:", error);
+            // Still sign out even if clearing the token fails
+            await supabase.auth.signOut();
+            router.replace('/auth/signin');
           }
         } 
       }
     ]
   );
 };
+  
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       <Stack.Screen options={{ headerShown: false }} />
@@ -147,19 +175,27 @@ export default function SettingsScreen() {
             Preferences
           </Text>
           <View className="bg-gray-50 rounded-2xl overflow-hidden">
-            <SettingToggle 
-              icon="notifications-outline" 
-              label="Notification" 
-              value={notificationsEnabled} 
-              onValueChange={toggleNotifications} 
-            />
-            <SettingToggle 
-              icon="moon-outline" 
-              label="Dark Mode" 
-              value={darkMode} 
-              onValueChange={setDarkMode} 
-            />
-          </View>
+  {notificationsEnabled === null ? (
+    /* Show a small loading indicator or an empty space so it doesn't jump */
+    <View className="h-14 justify-center px-4">
+       <Text className="text-gray-400 text-xs">Loading preferences...</Text>
+    </View>
+  ) : (
+    <SettingToggle 
+      icon="notifications-outline" 
+      label="Notification" 
+      value={notificationsEnabled} 
+      onValueChange={toggleNotifications} 
+    />
+  )}
+  
+  <SettingToggle 
+    icon="moon-outline" 
+    label="Dark Mode" 
+    value={darkMode} 
+    onValueChange={setDarkMode} 
+  />
+</View>
         </View>
 
         <View className="mt-8">

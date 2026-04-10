@@ -59,7 +59,7 @@ export default function SignUp() {
 } else {
   // Instead of an alert, push to the new verification screen
   // We pass the email as a parameter so the user knows where it was sent
-  router.replace("/index");
+  router.replace('/(tabs)');
 }
     setLoading(false);
   }

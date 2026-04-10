@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "618870378060",
+    "project_id": "scritt-app",
+    "storage_bucket": "scritt-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:618870378060:android:3a7820675c293af319eee9",
+        "android_client_info": {
+          "package_name": "com.adesegunadetutu.scritt"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtX1knRVxxt5JZ5g6eQltds8UQYymPIl0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

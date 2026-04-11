@@ -26,50 +26,67 @@ Notifications.setNotificationHandler({
 
 // 🔔 REGISTER FUNCTION
 async function registerForPushNotificationsAsync() {
-  if (!Device.isDevice) {
-    console.log("Must use physical device");
-    return null;
-  }
+  try {
+    if (!Device.isDevice) {
+      console.log("❌ Must use physical device");
+      return null;
+    }
 
-  // --- NEW LOGIC START ---
-  // This extracts the projectId mentioned in the screenshot
-  const projectId =
-    Constants?.expoConfig?.extra?.eas?.projectId ??
-    Constants?.easConfig?.projectId;
+    const projectId =
+      Constants?.expoConfig?.extra?.eas?.projectId ??
+      Constants?.easConfig?.projectId;
 
-  if (!projectId) {
-    console.error("Project ID not found. Ensure you have a projectId in app.json");
-    return null;
-  }
-  // --- NEW LOGIC END ---
+    if (!projectId) {
+      console.error("❌ Project ID not found");
+      return null;
+    }
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
+    // 🔐 CHECK EXISTING PERMISSION
+    const { status: existingStatus } =
+      await Notifications.getPermissionsAsync();
 
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
+    let finalStatus = existingStatus;
 
-  if (finalStatus !== 'granted') {
-    console.log("Permission not granted");
-    return null;
-  }
+    // 🔐 REQUEST IF NOT GRANTED
+    if (existingStatus !== "granted") {
+      const { status: reqStatus } =
+        await Notifications.requestPermissionsAsync();
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'default',
-      importance: Notifications.AndroidImportance.MAX,
+      finalStatus = reqStatus;
+    }
+
+    console.log("🔐 Permission Status:", finalStatus);
+
+    if (finalStatus !== "granted") {
+      console.log("❌ Notification permission denied");
+      return null;
+    }
+
+    // 📱 ANDROID CHANNEL (SAFE)
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "default",
+        importance: Notifications.AndroidImportance.MAX,
+      });
+    }
+
+    // 🚀 GET TOKEN
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId,
     });
-  }
 
-  // --- UPDATED CALL ---
-  // We now pass the projectId object as the documentation suggests
-  const tokenData = await Notifications.getExpoPushTokenAsync({
-    projectId,
-  });
-  
-  return tokenData.data;
+    if (!tokenData?.data) {
+      console.log("❌ Token generation failed");
+      return null;
+    }
+
+    console.log("✅ TOKEN GENERATED:", tokenData.data);
+
+    return tokenData.data;
+  } catch (error) {
+    console.log("❌ PUSH TOKEN ERROR:", error);
+    return null;
+  }
 }
 
 // Prevent splash from auto hiding
@@ -86,10 +103,12 @@ function RootLayoutNav() {
   const { isReady: appDataReady } = useAppInit();
 
   const [forceReady, setForceReady] = useState(false);
+  const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
+
   const notificationListener = useRef<any>(null);
   const responseListener = useRef<any>(null);
 
-  // 🔔 1. HANDLE NOTIFICATIONS WHEN APP IS CLOSED (COLD START)
+  // 🔔 HANDLE COLD START
   const lastResponse = Notifications.useLastNotificationResponse();
 
   useEffect(() => {
@@ -99,35 +118,32 @@ function RootLayoutNav() {
       lastResponse.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER
     ) {
       const { screen, id } = lastResponse.notification.request.content.data;
-      
-      // Small delay to ensure the navigation stack is mounted
-      const timer = setTimeout(() => {
+
+      setTimeout(() => {
         router.push({
           pathname: screen as any,
           params: id ? { id: id as string } : {},
         });
       }, 500);
-      return () => clearTimeout(timer);
     }
   }, [lastResponse]);
 
   const isAppReady = appDataReady || forceReady;
 
-  // Initialize Network Observer
   useNetworkObserver();
 
-  // Safety timer for app loading
+  // Safety timer
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!isAppReady) {
-        console.warn("App taking too long to load, forcing mount...");
+        console.warn("⚠️ Forcing app ready...");
         setForceReady(true);
       }
     }, 5000);
     return () => clearTimeout(timer);
   }, [isAppReady]);
 
-  // --- PASSWORD RECOVERY LISTENER ---
+  // PASSWORD RECOVERY
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
@@ -137,32 +153,42 @@ function RootLayoutNav() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 🔔 2. NOTIFICATION LISTENERS (FOREGROUND/BACKGROUND)
+  // 🔔 STEP 1: GET TOKEN ONCE
   useEffect(() => {
-    console.log("🔔 Notification Effect Running. User Status:", !!user);
+  registerForPushNotificationsAsync().then(token => {
+    if (token) {
+      console.log("📱 TOKEN RECEIVED:", token);
+      setExpoPushToken(token);
+    } else {
+      console.log("❌ No token returned");
+    }
+  });
+}, []);
 
-    registerForPushNotificationsAsync().then(token => {
-      if (token && user) {
-        console.log("✅ TOKEN GENERATED:", token);
-        
-        supabase.from('profiles')
-          .update({ push_token: token })
-          .eq('id', user.id)
-          .then(({ error }) => {
-            if (error) {
-              console.error("❌ SUPABASE ERROR:", error.message);
-            } else {
-              console.log("🚀 DATABASE UPDATED SUCCESSFULLY!");
-            }
-          });
-      } else {
-        console.log("⚠️ No token or no user. Token:", !!token, "User:", !!user);
-      }
-    });
+  // 🔔 STEP 2: SAVE TOKEN WHEN USER IS READY
+  useEffect(() => {
+    console.log("👤 User:", user);
+    console.log("📱 Token:", expoPushToken);
 
-    // ... (keep your notificationListener and responseListener code here)
+    if (expoPushToken && user) {
+      console.log("🚀 Saving token to DB...");
 
-    // Interaction listener (User tapped notification while app was in background)
+      supabase
+        .from('profiles')
+        .update({ push_token: expoPushToken })
+        .eq('id', user.id)
+        .then(({ error }) => {
+          if (error) {
+            console.error("❌ SUPABASE ERROR:", error.message);
+          } else {
+            console.log("✅ DATABASE UPDATED SUCCESSFULLY!");
+          }
+        });
+    }
+  }, [expoPushToken, user]);
+
+  // 🔔 NOTIFICATION CLICK (BACKGROUND)
+  useEffect(() => {
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data as { screen?: string; id?: string };
 
@@ -175,12 +201,11 @@ function RootLayoutNav() {
     });
 
     return () => {
-      if (notificationListener.current) notificationListener.current?.remove();
       if (responseListener.current) responseListener.current?.remove();
     };
-  }, [user]);
+  }, []);
 
-  // --- HANDLE AUTH + ROUTING ---
+  // AUTH ROUTING
   useEffect(() => {
     if (authLoading || !isAppReady) return;
 
@@ -193,7 +218,7 @@ function RootLayoutNav() {
     }
   }, [user, authLoading, segments, isAppReady]);
 
-  // --- HIDE SPLASH SCREEN ---
+  // HIDE SPLASH
   useEffect(() => {
     if (isAppReady && !authLoading) {
       SplashScreen.hideAsync();
@@ -207,6 +232,7 @@ function RootLayoutNav() {
       </View>
     );
   }
+
 
   return (
     <View style={styles.container}>

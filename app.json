@@ -29,7 +29,6 @@
       "versionCode": 2,
       "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true,
       "permissions": [
         "INTERNET",
         "READ_EXTERNAL_STORAGE",

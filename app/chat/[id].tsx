@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { 
   View, Text, FlatList, TextInput, TouchableOpacity, 
   KeyboardAvoidingView, Platform, ActivityIndicator, Image, 
-  Alert , Modal,
+  Alert, Modal,
   StatusBar
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { getSupabaseImage } from '@/utils/getSupabaseImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 
 // --- 1️⃣ MEMOIZED MESSAGE COMPONENT ---
 const MemoizedMessage = React.memo(({ item, currentUserId, onLongPress, onImagePress }: any) => {
@@ -74,6 +75,7 @@ const MemoizedMessage = React.memo(({ item, currentUserId, onLongPress, onImageP
 export default function ChatRoom() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { id: conversationId, topic: initialTopic, prefillTitle, prefillImage, table: originTable, initialMessage } = useLocalSearchParams();
 
   const [messages, setMessages] = useState<any[]>([]);
@@ -87,7 +89,6 @@ export default function ChatRoom() {
   
   const sortedId = useMemo(() => (conversationId as string)?.split('_').sort().join('_'), [conversationId]);
   
-  // Refs to prevent duplicate sends on re-renders
   const hasSentPrefill = useRef(false);
   const hasSentInitialMessage = useRef(false);
 
@@ -137,12 +138,10 @@ export default function ChatRoom() {
     return () => { if (channel) supabase.removeChannel(channel); };
   }, [conversationId, sortedId]);
 
-  // Combined logic for Prefill & Initial Message
   useEffect(() => {
     if (!currentUserId || !recipient) return;
 
     const handlePrefills = async () => {
-      // 1. Send Prefill (Interest Image/Text)
       if ((prefillTitle || prefillImage) && !hasSentPrefill.current) {
         hasSentPrefill.current = true;
         const titleStr = Array.isArray(prefillTitle) ? prefillTitle[0] : prefillTitle;
@@ -160,7 +159,6 @@ export default function ChatRoom() {
         await sendMessage(`Interested in: ${titleStr}`, 'image', finalImageUrl);
       }
 
-      // 2. Send Initial Message
       if (initialMessage && !hasSentInitialMessage.current) {
         hasSentInitialMessage.current = true;
         const msgStr = Array.isArray(initialMessage) ? initialMessage[0] : initialMessage;
@@ -183,51 +181,50 @@ export default function ChatRoom() {
   };
 
   const sendMessage = async (content = newMessage, type = 'text', imageUri?: string) => {
-  // Allow sending if there is either text OR an image
-  const trimmedContent = content?.trim() || '';
-  if (!trimmedContent && !imageUri) return;
-  if (!currentUserId || !recipient) return;
+    const trimmedContent = content?.trim() || '';
+    if (!trimmedContent && !imageUri) return;
+    if (!currentUserId || !recipient) return;
 
-  const currentTopic = messages[0]?.topic || (initialTopic as string)?.replace(/_/g, ' ');
-  const itemThumbnail = (prefillImage as string) || messages.find(m => m.item_thumbnail)?.item_thumbnail;
-  const tempId = Math.random().toString(36).substring(7);
-  
-  const optimisticMessage = {
-    id: tempId,
-    conversation_id: sortedId,
-    content: trimmedContent,
-    sender_id: currentUserId,
-    receiver_id: recipient.id,
-    image_url: imageUri || null, // Ensure the image URL is included here
-    item_thumbnail: itemThumbnail,
-    topic: currentTopic,
-    inserted_at: new Date().toISOString(),
-    is_read: false,
-    is_sending: true,
+    const currentTopic = messages[0]?.topic || (initialTopic as string)?.replace(/_/g, ' ');
+    const itemThumbnail = (prefillImage as string) || messages.find(m => m.item_thumbnail)?.item_thumbnail;
+    const tempId = Math.random().toString(36).substring(7);
+    
+    const optimisticMessage = {
+      id: tempId,
+      conversation_id: sortedId,
+      content: trimmedContent,
+      sender_id: currentUserId,
+      receiver_id: recipient.id,
+      image_url: imageUri || null,
+      item_thumbnail: itemThumbnail,
+      topic: currentTopic,
+      inserted_at: new Date().toISOString(),
+      is_read: false,
+      is_sending: true,
+    };
+
+    setMessages(prev => [optimisticMessage, ...prev]);
+    if (type === 'text') setNewMessage('');
+
+    const { data, error } = await supabase.from('messages').insert([{
+      conversation_id: sortedId,
+      content: trimmedContent,
+      sender_id: currentUserId,
+      receiver_id: recipient.id,
+      image_url: imageUri || null,
+      item_thumbnail: itemThumbnail,
+      topic: currentTopic,
+      is_read: false
+    }]).select().single();
+
+    if (error) {
+      console.error("DB Insert Error:", error.message);
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      Alert.alert("Error", "Message failed to send.");
+    } else {
+      setMessages(prev => prev.map(m => m.id === tempId ? data : m));
+    }
   };
-
-  setMessages(prev => [optimisticMessage, ...prev]);
-  if (type === 'text') setNewMessage('');
-
-  const { data, error } = await supabase.from('messages').insert([{
-    conversation_id: sortedId,
-    content: trimmedContent,
-    sender_id: currentUserId,
-    receiver_id: recipient.id,
-    image_url: imageUri || null,
-    item_thumbnail: itemThumbnail,
-    topic: currentTopic,
-    is_read: false
-  }]).select().single();
-
-  if (error) {
-    console.error("DB Insert Error:", error.message);
-    setMessages(prev => prev.filter(m => m.id !== tempId));
-    Alert.alert("Error", "Message failed to send.");
-  } else {
-    setMessages(prev => prev.map(m => m.id === tempId ? data : m));
-  }
-};
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -239,45 +236,36 @@ export default function ChatRoom() {
   };
 
   const uploadImage = async (uri: string) => {
-  if (!currentUserId) return;
-  setUploading(true);
-  
-  try {
-    // 1. Get file extension and create a unique name
-    const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
-    const fileName = `${currentUserId}/${Date.now()}.${fileExt}`;
+    if (!currentUserId) return;
+    setUploading(true);
+    try {
+      const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `${currentUserId}/${Date.now()}.${fileExt}`;
+      const response = await fetch(uri);
+      const arrayBuffer = await response.arrayBuffer();
 
-    // 2. Convert URI to ArrayBuffer (The fix for APKs)
-    const response = await fetch(uri);
-    const arrayBuffer = await response.arrayBuffer();
-
-    // 3. Upload to Supabase Storage
-    const { data, error: uploadError } = await supabase.storage
-      .from('chat-attachments')
-      .upload(fileName, arrayBuffer, {
-        contentType: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
-        upsert: true,
-      });
-
-    if (uploadError) throw uploadError;
-
-    // 4. Get the Public URL and call sendMessage
-    if (data) {
-      const { data: urlData } = supabase.storage
+      const { data, error: uploadError } = await supabase.storage
         .from('chat-attachments')
-        .getPublicUrl(fileName);
+        .upload(fileName, arrayBuffer, {
+          contentType: `image/${fileExt === 'png' ? 'png' : 'jpeg'}`,
+          upsert: true,
+        });
 
-      // Trigger the send message function with the URL
-      // We pass an empty string for content so it doesn't try to send 'undefined'
-      await sendMessage('', 'image', urlData.publicUrl);
+      if (uploadError) throw uploadError;
+
+      if (data) {
+        const { data: urlData } = supabase.storage
+          .from('chat-attachments')
+          .getPublicUrl(fileName);
+        await sendMessage('', 'image', urlData.publicUrl);
+      }
+    } catch (e: any) { 
+      console.error("Upload Error:", e.message);
+      Alert.alert("Upload Failed", "Could not upload image.");
+    } finally { 
+      setUploading(false); 
     }
-  } catch (e: any) { 
-    console.error("Upload Error:", e.message);
-    Alert.alert("Upload Failed", "Could not upload image. Check your storage bucket permissions.");
-  } finally { 
-    setUploading(false); 
-  }
-};
+  };
 
   const handleLongPress = useCallback((message: any) => {
     if (message.sender_id !== currentUserId) return;
@@ -309,53 +297,100 @@ export default function ChatRoom() {
   };
 
   const renderItem = useCallback(({ item }: any) => (
-    <MemoizedMessage item={item} currentUserId={currentUserId} onLongPress={handleLongPress}  onImagePress={(url: string) => setSelectedImage(url)}/>
-  ), [currentUserId, handleLongPress ]);
+    <MemoizedMessage item={item} currentUserId={currentUserId} onLongPress={handleLongPress} onImagePress={(url: string) => setSelectedImage(url)}/>
+  ), [currentUserId, handleLongPress]);
 
   return (
     <View className="flex-1 bg-app-bg">
       <Stack.Screen options={{ headerShown: false }} />
-            <View 
-  style={{ paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 10 : 10 }}
-  className="bg-white border-b border-gray-100 px-4 py-3 flex-row items-center"
+      
+      {/* 🟢 HEADER: Outside KeyboardAvoidingView to stay fixed */}
+      <View 
+       style={{ 
+    // Calculate exact height: Status bar + Content height (e.g., 60)
+    height: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 60 : undefined,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : insets.top,
+    zIndex: 10
+  }}
+  className="bg-white border-b border-gray-100 px-4 flex-row items-center"
 >
-  {/* Back Arrow */}
-  <TouchableOpacity 
-    onPress={() => router.back()} 
-    className="mr-3 p-1"
-  >
-    <Ionicons name="arrow-back" size={24} color="#374151" />
-  </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1">
+          <Ionicons name="arrow-back" size={24} color="#374151" />
+        </TouchableOpacity>
 
-  {/* Avatar */}
-  <View className="w-10 h-10 bg-gray-200 rounded-full mr-3 overflow-hidden border border-gray-100">
-    <Image 
-      source={{ uri: recipient?.avatar_url || `https://ui-avatars.com/api/?name=${recipient?.full_name || 'User'}&background=075E54&color=fff` }} 
-      className="w-full h-full" 
-    />
-  </View>
+        <View className="w-10 h-10 bg-gray-200 rounded-full mr-3 overflow-hidden border border-gray-100">
+          <Image 
+            source={{ uri: recipient?.avatar_url || `https://ui-avatars.com/api/?name=${recipient?.full_name || 'User'}&background=075E54&color=fff` }} 
+            className="w-full h-full" 
+          />
+        </View>
 
-  {/* Name and Status */}
-  <View className="flex-1">
-    <Text className="text-[17px] font-bold text-gray-900 leading-tight">
-      {recipient?.full_name || "Loading..."}
-    </Text>
-    <View className="flex-row items-center mt-0.5">
-      <View className={`w-2 h-2 rounded-full mr-1.5 ${isOtherUserOnline ? 'bg-green-500' : 'bg-gray-300'}`} />
-      <Text className={`text-[11px] font-bold tracking-tighter ${isOtherUserOnline ? 'text-green-600' : 'text-gray-400'}`}>
-        {isOtherUserOnline ? 'online' : 'offline'}
-      </Text>
-    </View>
-  </View>
-</View>
-         
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} 
-        className="flex-1"
-      >
+        <View className="flex-1">
+          <Text className="text-[17px] font-bold text-gray-900 leading-tight">
+            {recipient?.full_name || "Loading..."}
+          </Text>
+          <View className="flex-row items-center mt-0.5">
+            <View className={`w-2 h-2 rounded-full mr-1.5 ${isOtherUserOnline ? 'bg-green-500' : 'bg-gray-300'}`} />
+            <Text className={`text-[11px] font-bold tracking-tighter ${isOtherUserOnline ? 'text-green-600' : 'text-gray-400'}`}>
+              {isOtherUserOnline ? 'online' : 'offline'}
+            </Text>
+          </View>
+        </View>
+      </View>
+          
+     
+        <FlatList
+          data={messages}
+          inverted
+          keyExtractor={item => item.id.toString()}
+          contentContainerStyle={{ padding: 16 }}
+          renderItem={renderItem}
+          initialNumToRender={15}
+        />
+       <KeyboardAvoidingView 
+  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+>
+        {/* FOOTER AREA */}
+        <View 
+          style={{ 
+            paddingBottom: Math.max(insets.bottom, 12),
+            paddingTop: 12,
+            paddingHorizontal: 12
+          }} 
+          className="flex-row items-center bg-white border-t border-gray-200"
+        >
+          {editingMessage ? (
+            <TouchableOpacity onPress={() => { setEditingMessage(null); setNewMessage(''); }} className="mr-3">
+              <Ionicons name="close-circle" size={28} color="#ef4444" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={pickImage} className="mr-3">
+              <Ionicons name="add" size={28} color="#075E54" />
+            </TouchableOpacity>
+          )}
 
-        <Modal
+          <View className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 mr-2">
+            <TextInput
+              placeholder={editingMessage ? "Edit message..." : "Message"}
+              placeholderTextColor="#9CA3AF"
+              value={newMessage}
+              onChangeText={setNewMessage}
+              multiline
+              className="text-[16px] max-h-24 text-gray-800"
+            />
+          </View>
+
+          <TouchableOpacity 
+            onPress={editingMessage ? handleUpdateMessage : () => sendMessage()}
+            disabled={uploading}
+            className={`w-11 h-11 rounded-full items-center justify-center ${editingMessage ? 'bg-primary' : 'bg-[#075E54]'}`}
+          >
+            {uploading ? <ActivityIndicator color="white" size="small" /> : <Ionicons name={editingMessage ? "checkmark" : "send"} size={20} color="white" />}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+
+      <Modal
         visible={!!selectedImage}
         transparent={true}
         animationType="fade"
@@ -378,51 +413,6 @@ export default function ChatRoom() {
           )}
         </View>
       </Modal>
-
-        <FlatList
-          data={messages}
-          inverted
-          keyExtractor={item => item.id.toString()}
-          contentContainerStyle={{ padding: 16 }}
-          renderItem={renderItem}
-          initialNumToRender={15}
-        />
-
-        <View className="flex-row items-center p-3 bg-white border-t border-gray-200">
-          {editingMessage ? (
-            <TouchableOpacity onPress={() => { setEditingMessage(null); setNewMessage(''); }} className="mr-3">
-              <Ionicons name="close-circle" size={28} color="#ef4444" />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity onPress={pickImage} className="mr-3">
-              <Ionicons name="add" size={28} color="#075E54" />
-            </TouchableOpacity>
-          )}
-
-          <View 
-          style={{ 
-            paddingBottom: Platform.OS === 'android' ? Math.max(insets.bottom, 12) : insets.bottom 
-          }}
-          className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 mr-2">
-            <TextInput
-              placeholder={editingMessage ? "Edit message..." : "Message"}
-              placeholderTextColor="#9CA3AF"
-              value={newMessage}
-              onChangeText={setNewMessage}
-              multiline
-              className="text-[16px] max-h-24"
-            />
-          </View>
-
-          <TouchableOpacity 
-            onPress={editingMessage ? handleUpdateMessage : () => sendMessage()}
-            disabled={uploading}
-            className={`w-11 h-11 rounded-full items-center justify-center ${editingMessage ? 'bg-primary' : 'bg-secondary'}`}
-          >
-            {uploading ? <ActivityIndicator color="white" size="small" /> : <Ionicons name={editingMessage ? "checkmark" : "send"} size={20} color="white" />}
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
     </View>
   );
 }

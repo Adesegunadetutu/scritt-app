@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Platform, FlatList, Modal } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Platform, FlatList, Modal, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -167,18 +167,53 @@ export default function AccommodationDetails() {
                   )}
                 </ScrollView>
 
-          {/* Safety Disclaimer */}
-          {!item.profiles?.is_verified && (
-            <View className="bg-orange-50 mt-6 p-4 rounded-2xl border border-orange-100 flex-row items-start">
-              <Ionicons name="warning" size={20} color="#f97316" />
-              <View className="ml-3 flex-1">
-                <Text className="text-orange-900 font-bold text-sm uppercase">Safety First</Text>
-                <Text className="text-orange-800 text-xs leading-4 mt-1">
-                  This listing is not verified. Never pay any fee before meeting in person.
-                </Text>
-              </View>
-            </View>
-          )}
+          {/* Safety Disclaimer & Owner Verification Call-to-Action */}
+<View className="mt-6">
+  {/* IF THE VIEWER IS THE OWNER AND UNVERIFIED */}
+  {user?.id === item.user_id && !item.profiles?.is_verified ? (
+    <TouchableOpacity 
+      onPress={() => {
+        const phoneNumber = '234XXXXXXXXXX'; // Your Admin WhatsApp
+        const message = `Hello Admin, I want to verify my accommodation listing: ${item.title}. My User ID: ${user?.id}`;
+        const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+        
+        Linking.canOpenURL(url).then(supported => {
+          if (supported) {
+            Linking.openURL(url);
+          } else {
+            Linking.openURL(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`);
+          }
+        });
+      }}
+      activeOpacity={0.8}
+      className="bg-red-50 p-4 rounded-2xl border border-red-100 flex-row items-center shadow-sm"
+    >
+      <View className="bg-red-100 p-2 rounded-full">
+        <Ionicons name="shield-outline" size={20} color="#dc2626" />
+      </View>
+      <View className="ml-3 flex-1">
+        <Text className="text-red-900 font-bold text-sm">Verify your property</Text>
+        <Text className="text-red-800 text-xs mt-0.5">Contact admin to build trust and get more booking requests.</Text>
+      </View>
+      <View className="bg-green-500 p-1.5 rounded-full">
+        <Ionicons name="logo-whatsapp" size={14} color="white" />
+      </View>
+    </TouchableOpacity>
+  ) : (
+    /* IF THE VIEWER IS A BUYER AND OWNER IS UNVERIFIED */
+    !item.profiles?.is_verified && (
+      <View className="bg-orange-50 p-4 rounded-2xl border border-orange-100 flex-row items-start">
+        <Ionicons name="warning" size={20} color="#f97316" />
+        <View className="ml-3 flex-1">
+          <Text className="text-orange-900 font-bold text-sm uppercase">Safety First</Text>
+          <Text className="text-orange-800 text-xs leading-4 mt-1">
+            This listing is not verified. Never pay any fee before meeting in person.
+          </Text>
+        </View>
+      </View>
+    )
+  )}
+</View>
 
           {/* Description */}
           <View className="mt-8">
@@ -236,7 +271,7 @@ export default function AccommodationDetails() {
             <Text className="text-gray-500 font-bold">Your Listing</Text>
           </View>
         ) : (
-          <TouchableOpacity onPress={handleSendMessage} disabled={isStartingChat} className="bg-[#228B22] px-8 py-4 rounded-2xl shadow-lg shadow-green-200">
+          <TouchableOpacity onPress={handleSendMessage} disabled={isStartingChat} className="bg-primary px-8 py-4 rounded-2xl shadow-lg shadow-green-200">
             {isStartingChat ? <ActivityIndicator color="white" size="small" /> : <Text className="text-white font-bold text-base">Chat Agent</Text>}
           </TouchableOpacity>
         )}

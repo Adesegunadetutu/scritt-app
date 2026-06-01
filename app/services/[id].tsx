@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { 
   View, Text, ScrollView, TouchableOpacity, 
   ActivityIndicator, Dimensions, Linking, StatusBar, 
-  Alert
+  Alert, Modal
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -22,6 +22,7 @@ export default function ServiceDetail() {
   const [activeImg, setActiveImg] = useState(0);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState("");
+  
 
   useEffect(() => { fetchInitialData(); }, [id]);
 
@@ -52,21 +53,34 @@ export default function ServiceDetail() {
         { 
           text: "Delete", 
           style: "destructive", 
-          onPress: async () => {
-            const { error } = await supabase.from('services').delete().eq('id', id);
-            if (!error) {
-              router.replace('/services'); // Navigate back to services list
-            } else {
-              Alert.alert("Error", "Could not delete service. Please try again.");
-            }
-          } 
+          // Replace your handleDelete's onPress with this:
+onPress: async () => {
+  try {
+    const { error } = await supabase.from('services').delete().eq('id', id);
+    
+    if (error) throw error;
+
+    // 1. Immediately null out the service state to stop rendering details
+    setService(null); 
+    
+    // 2. Navigate away
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/services');
+    }
+  } catch (error) {
+    Alert.alert("Error", "Could not delete service. Please try again.");
+    console.error(error);
+  }
+}
         }
       ]
     );
   };
 
   const handleMessagePress = () => {
-    if (!user || !service) return;
+    if (!user || !service || !service.id) return;
 
     // Create the sorted alphabetical ID to match ChatRoom logic
     const participants = [user.id, service.provider_id].sort();
@@ -136,38 +150,42 @@ export default function ServiceDetail() {
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         
         {/* --- 2. IMAGE HERO SECTION (CARD STYLE) --- */}
-        <View className="px-5 mt-2"> 
-          <View className="w-full h-72 rounded-[30px] overflow-hidden bg-gray-200 shadow-sm">
-            <ScrollView 
-              horizontal 
-              pagingEnabled 
-              // Subtract the total horizontal padding (20 + 20 = 40) from the screen width
-              onScroll={(e) => setActiveImg(Math.round(e.nativeEvent.contentOffset.x / (width - 40)))}
-              showsHorizontalScrollIndicator={false}
-              scrollEventThrottle={16}
-            >
-              {service?.images?.map((img: string, i: number) => (
-                <Image 
-                  key={i} 
-                  source={{ uri: `${serviceBucketUrl}/${img}` }}
-                  // Ensure the image width matches the container width exactly
-                  style={{ width: width - 40, height: 288 }} 
-                  contentFit="cover"
-                />
-              ))}
-            </ScrollView>
+        {/* --- 2. IMAGE HERO SECTION (CARD STYLE) --- */}
+<View className="px-5 mt-2"> 
+  <View className="w-full h-96 rounded-[30px] overflow-hidden bg-gray-200 shadow-sm">
+    <ScrollView 
+      horizontal 
+      pagingEnabled 
+      // This ensures we snap exactly to the width of the container
+      onScroll={(e) => setActiveImg(Math.round(e.nativeEvent.contentOffset.x / (width - 40)))}
+      showsHorizontalScrollIndicator={false}
+      scrollEventThrottle={16}
+      // Remove any default padding that might exist
+      contentContainerStyle={{ paddingHorizontal: 0 }}
+    >
+      {service?.images?.map((img: string, i: number) => (
+        <Image 
+          key={i} 
+          source={{ uri: `${serviceBucketUrl}/${img}` }}
+          // width - 40 is correct because px-5 on both sides = 40px total margin
+          style={{ width: width - 40, height: 384 }} 
+          contentFit="fill" 
+          transition={200}
+        />
+      ))}
+    </ScrollView>
 
-          {/* Pagination Dots */}
-          <View className="absolute bottom-5 w-full flex-row justify-center space-x-1.5">
-            {service?.images?.map((_: any, i: number) => (
-              <View 
-                key={i} 
-                className={`h-1.5 rounded-full ${activeImg === i ? 'w-6 bg-white' : 'w-1.5 bg-white/50'}`} 
-              />
-            ))}
-          </View>
-        </View>
-      </View>
+    {/* Pagination Dots */}
+    <View className="absolute bottom-5 w-full flex-row justify-center space-x-1.5">
+      {service?.images?.map((_: any, i: number) => (
+        <View 
+          key={i} 
+          className={`h-1.5 rounded-full ${activeImg === i ? 'w-6 bg-white' : 'w-1.5 bg-white/50'}`} 
+        />
+      ))}
+    </View>
+  </View>
+</View>
 
         {/* --- REST OF THE CONTENT (Badges, Description, Gallery) --- */}
         <View className="px-5 py-4">
@@ -195,7 +213,7 @@ export default function ServiceDetail() {
           </View>
 
           {/* Business Name & Description */}
-          <Text className="text-xl font-bold text-secondary mb-6">{service.business_name}</Text>
+          <Text className="text-lg font-bold text-primary mb-4">{service.business_name}</Text>
           <Text className="text-sm font-bold text-gray-900 mb-3">Description</Text>
           
           <View className="flex-row items-center mb-4">
@@ -211,7 +229,7 @@ export default function ServiceDetail() {
           />
           <View className="flex-1 justify-center">
                 {/* Full Name */}
-                <Text className="text-[16px] font-bold text-gray-900 leading-tight">
+                <Text className="text-[12px] font-bold text-gray-400 leading-tight">
                   {service.profiles?.full_name}
                 </Text>
 
@@ -221,14 +239,14 @@ export default function ServiceDetail() {
                 </Text>
 
                 {/* Phone Number (Now in its own tag) */}
-                <Text className="text-[10px] font-medium text-gray-900 leading-tight">
+                <Text className="text-[10px] font-medium text-gray-900 leading-tight mt-0.5">
                   {service.profiles?.phone}
                 </Text>
               </View>
         </View>
       </View>
 
-          <Text className="text-gray-600 text-[13px] leading-5 ">{service.description}</Text>
+          <Text className="text-gray-600 text-[13px] leading-5 mb-4 ">{service.description}</Text>
 
           
             {/* 1. If it's NOT my listing AND not verified -> Show Safety Disclaimer */}
@@ -326,13 +344,23 @@ export default function ServiceDetail() {
                     className="bg-gray-100 rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
                     style={{ width: 100, height: 100 }} // Fixed box size
                   >
-                    <Image 
-                      source={{ uri: `${serviceBucketUrl}/${img}` }} 
-                      // CRITICAL: Explicit dimensions for physical phone rendering
-                      style={{ width: 100, height: 100 }} 
-                      contentFit="cover"
-                      transition={200}
-                    />
+                    {service?.images?.map((img: string, i: number) => (
+  <TouchableOpacity
+    key={i}
+    activeOpacity={0.9}
+    onPress={() => {
+      setSelectedImage(`${serviceBucketUrl}/${img}`);
+      setIsPreviewVisible(true);
+    }}
+  >
+    <Image 
+      source={{ uri: `${serviceBucketUrl}/${img}` }}
+      style={{ width: width - 40, height: 384 }} 
+      contentFit="fill" 
+      transition={200}
+    />
+  </TouchableOpacity>
+))}
                   </View>
                 </TouchableOpacity>
               ))}
@@ -380,6 +408,49 @@ export default function ServiceDetail() {
           </>
         )}
       </View>
+
+      {/* --- FULLSCREEN IMAGE MODAL PREVIEW --- */}
+      <Modal
+        visible={isPreviewVisible}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={() => setIsPreviewVisible(false)}
+      >
+        <SafeAreaView className="flex-1 bg-black justify-between" edges={['top', 'bottom']}>
+          <StatusBar barStyle="light-content" backgroundColor="black" />
+          
+          {/* Top Close Bar */}
+          <View className="px-5 py-3 flex-row justify-start">
+            <TouchableOpacity 
+              onPress={() => setIsPreviewVisible(false)} 
+              className="w-10 h-10 items-center justify-center rounded-full bg-white/10"
+            >
+              <Ionicons name="close" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Centered Target Image */}
+          <View className="flex-1 justify-center items-center">
+            {selectedImage ? (
+              <Image
+                source={{ uri: selectedImage }}
+                style={{ width: width, aspectRatio: 1 }}
+                contentFit="contain"
+              />
+            ) : null}
+          </View>
+
+          {/* Bottom Details Information Bar */}
+          <View className="p-6 bg-black/60 border-t border-white/10 pb-10">
+            <Text className="text-white text-lg font-black tracking-tight" numberOfLines={2}>
+              {service?.business_name}
+            </Text>
+            <Text className="text-gray-400 text-xs lowercase font-bold mt-1">
+              {service?.category}
+            </Text>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

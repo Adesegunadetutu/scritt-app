@@ -18,12 +18,14 @@ export const useAppInit = () => {
         console.log("CACHE LOADED");
 
         // ADD 'await' HERE so data is actually there when the app opens
-        await fetchFreshData(); 
+        fetchFreshData(); 
       } catch (e) {
         console.log("Init error:", e);
       } finally {
         console.log("SETTING READY TRUE");
+        setTimeout(() => {
         setIsReady(true);
+      }, 500);
       }
     };
 

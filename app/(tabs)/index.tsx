@@ -16,12 +16,16 @@ import ListingCard from '@/components/ListingCard';
 import Header from "@/components/Header";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { GradientAvatar } from '@/components/GradientAvatar';
 import { useListingsStore, Listing } from '@/stores/useListingsStore';
+import MarqueeAnnouncement from '@/components/MarqueeAnnouncement';
+import TopSellers from '@/components/TopSellers';
+
 
 const { width } = Dimensions.get('window');
 const ITEM_WIDTH = width * 0.6 + 12;
+const isSmallDevice = width < 375;
 
 // --- SKELETONS ---
 const ListingSkeleton = () => (
@@ -59,23 +63,55 @@ function FeatureCard({
 }) {
   const router = useRouter();
   
+  // Dynamically map premium icon/border colors based on the section theme
+  const isAccommodations = title.toLowerCase().includes('accommod') || icon === 'business';
+  const iconColor = isAccommodations ? '#3A7B66' : '#D97706';
+  const cardBg = isAccommodations ? '#EDF7F4' : '#FFF9F2';
+  const borderColor = isAccommodations ? '#D1E7DD' : '#FFE8CC';
+  const badgeBg = isAccommodations ? '#D1E7DD' : '#FFE8CC';
+
   return (
     <TouchableOpacity 
-      activeOpacity={0.8}
+      activeOpacity={0.9}
       onPress={() => router.push(route)}
-      className="flex-1 bg-accent p-4 rounded-3xl border border-gray-100 shadow-sm items-center justify-center"
-      style={{ elevation: 2 }} 
+      className="flex-1 h-36 rounded-[24px] p-4 justify-between border"
+      style={{ 
+        backgroundColor: cardBg,
+        borderColor: borderColor,
+      }} 
     >
-      <View 
-        style={{ backgroundColor: bgColor }}
-        className="w-12 h-12 rounded-2xl items-center justify-center mb-3"
-      >
-        <Ionicons name={icon} size={24} color="#16a34a" />
+      {/* Top Section: Icon Badge & Meta Text */}
+      <View className="w-full">
+        {/* Soft Circular Icon Badge */}
+        <View 
+          style={{ backgroundColor: badgeBg }}
+          className="w-7 h-7 rounded-full items-center justify-center mb-2.5 self-start"
+        >
+          <Ionicons name={icon} size={14} color={iconColor} />
+        </View>
+
+        {/* Left-aligned Premium Title */}
+        <Text 
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          className="text-[#1A1A1A] text-base font-black tracking-tight mb-0.5 text-left"
+        >
+          {title}
+        </Text>
+        
+        {/* Short context description placeholder to balance the card layout */}
+        <Text className="text-[#666666] text-[9px] font-bold leading-3 text-left" numberOfLines={1}>
+          {isAccommodations ? "Find verified stays fast." : "Discover expert local pros."}
+        </Text>
       </View>
-      <Text className="text-gray-900 text-[14px] font-bold text-center">
-        {title}
-      </Text>
-      <Text className="text-primary text-[10px] font-medium mt-1">Explore</Text>
+
+      {/* Bottom Section: Premium Compact Capsule Button */}
+      <View className="bg-white border border-gray-100 self-start px-2.5 py-1 rounded-full shadow-sm flex-row items-center mt-1">
+        <Text className="font-black text-[#1A1A1A] text-[9px] mr-0.5">
+          Explore
+        </Text>
+        <Ionicons name="chevron-forward" size={10} color="#1A1A1A" />
+      </View>
     </TouchableOpacity>
   );
 }
@@ -87,7 +123,8 @@ export default function HomeScreen() {
   const { 
     listings, 
     featured, 
-    categories, 
+    categories,
+    vehicles, 
     loading: storeLoading, 
     fetchListings 
   } = useListingsStore();
@@ -101,6 +138,8 @@ export default function HomeScreen() {
   const [hasUnread, setHasUnread] = useState(false);
   const [selectedCategorySlug, setSelectedCategorySlug] = useState<string>("all");
   const [filteredListings, setFilteredListings] = useState<Listing[]>([]);
+  const [topSellers, setTopSellers] = useState<any[]>([]);
+  const [sellersLoading, setSellersLoading] = useState(true);
   
   const categoryScrollRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -160,12 +199,12 @@ export default function HomeScreen() {
       if (user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('full_name, avatar_url')
+          .select('last_name, avatar_url')
           .eq('id', user.id)
           .single();
 
         if (profile) {
-          if (profile.full_name) setFirstName(profile.full_name.split(' ')[0]);
+          if (profile.last_name) setFirstName(profile.last_name.split(' ')[0]);
           setUserAvatar(profile.avatar_url);
         }
 
@@ -181,11 +220,32 @@ export default function HomeScreen() {
     }
   };
 
+
+  const fetchTopSellers = async () => {
+  try {
+    setSellersLoading(true);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, first_name, business_name, avatar_url, role, is_verified')
+      .eq('role', 'user') // Or 'vendor' depending on how roles are assigned
+      .eq('is_verified', true) // 👈 Adds the verification check
+      .limit(10);
+
+    if (error) throw error;
+    setTopSellers(data || []);
+  } catch (err: any) {
+    console.error("Error fetching top sellers:", err.message);
+  } finally {
+    setSellersLoading(false);
+  }
+};
+
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
       fetchListings(),
-      fetchUserData()
+      fetchUserData(),
+      fetchTopSellers()
     ]);
     setRefreshing(false);
   };
@@ -207,6 +267,7 @@ export default function HomeScreen() {
   useEffect(() => {
   fetchListings();
   fetchUserData();
+  fetchTopSellers();
 
   let listingsSub: any;
   let userSub: any; // Combine Profile and Notifications here
@@ -251,7 +312,7 @@ export default function HomeScreen() {
           },
           (payload) => {
             if (payload.new.avatar_url) setUserAvatar(payload.new.avatar_url);
-            if (payload.new.full_name) setFirstName(payload.new.full_name.split(' ')[0]);
+            if (payload.new.last_name) setFirstName(payload.new.last_name.split(' ')[0]);
           }
         )
         .subscribe();
@@ -286,7 +347,7 @@ export default function HomeScreen() {
 
     return (
       <View className="bg-white">
-        <View className="px-4 mb-6 mt-4 flex-row items-center justify-between">
+        <View className="px-4 mb-4 mt-4 flex-row items-center justify-between">
           <View className="flex-row items-center">
             <TouchableOpacity 
                 onPress={() => router.push('/profile')} 
@@ -294,16 +355,25 @@ export default function HomeScreen() {
                 className="mr-3"
               >
                 <GradientAvatar 
-                  uri={userAvatar} 
+                  uri={userAvatar ? `${userAvatar}?t=${new Date().getTime()}` : null} 
                   size={42} 
                   idSuffix="home" 
                 />
               </TouchableOpacity>
             
-            <View className="flex-row items-baseline">
-              <Text className="text-gray-400 text-[12px] font-bold tracking-widest">{greeting}</Text>
-              <Text className="text-[14px] font-bold text-gray-900 ml-1.5">{firstName}! 👋</Text>
-            </View>
+            <View className="flex-shrink">
+          <Text className="text-gray-400 text-[11px] font-bold tracking-widest">
+            {greeting}
+          </Text>
+
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            className="text-[14px] font-bold text-gray-900"
+          >
+            {firstName}! 👋
+          </Text>
+        </View>
           </View>
 
           <TouchableOpacity onPress={() => router.push('/notifications')} activeOpacity={0.7} className="p-2 bg-gray-50 rounded-full relative">
@@ -314,108 +384,234 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        <View className="px-4 mb-6">
+        <View className="px-4 mb-2">
           <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/search')} className="bg-gray-100 rounded-2xl px-4 py-3 flex-row items-center">
             <Ionicons name="search-outline" size={20} color="#9ca3af" />
             <Text className="text-gray-400 ml-2 font-medium">Search items...</Text>
           </TouchableOpacity>
+
+          <View className="mt-4">
+      {/* --- REUSABLE ANNOUNCEMENT DISCLAIMER --- */}
+              <MarqueeAnnouncement 
+                text="Disclaimer: Do NOT pay for any items, services, or accommodation until you have inspected and received them."
+                duration={15000} // Tailor the speed as needed
+              />
+      </View>
+
+        </View>
+        <TopSellers sellers={topSellers} loading={sellersLoading} />
+
+       {/* --- ROOMMATE & LISTING SECTION --- */}
+      <View className="px-4 flex-row justify-between items-center w-full">
+  
+  {/* 1. FIND ROOMMATE CARD (Left Asymmetrical Card - Absolute Width Percentage) */}
+  <TouchableOpacity 
+    activeOpacity={0.9}
+    onPress={() => router.push('/roommates')} 
+    className="w-[62%] h-36 rounded-[24px] overflow-hidden relative bg-[#EDF7F4] border border-[#D1E7DD] p-3.5 justify-between" 
+  >
+    {/* Background Illustration Overlay */}
+    <View style={{ position: 'absolute', right: -12, bottom: 0, width: '50%', height: '85%' }}>
+      <Image 
+        source={require('../../assets/roommate_find.png')} 
+        contentFit="contain"
+        style={{ width: '100%', height: '100%' }}
+        cachePolicy="disk"
+      />
+    </View>
+
+    {/* Text & Icon Stack Container */}
+    <View className="z-10 justify-between flex-1 w-[55%]">
+      <View>
+        {/* Soft Circular Icon Badge */}
+        <View className="w-6 h-6 rounded-full bg-[#D1E7DD] items-center justify-center mb-1">
+          <Ionicons name="people" size={12} color="#3A7B66" />
         </View>
 
-        {/* --- ROOMMATE & LISTING SECTION --- */}
-        <View className="px-4 flex-row" style={{ gap: 12 }}>
-          <TouchableOpacity 
-            activeOpacity={0.9}
-            onPress={() => router.push('/roommates')} 
-            className="flex-[2.3] h-36 rounded-[28px] overflow-hidden relative" 
-            style={{ backgroundColor: '#E8F6EF' }} 
-          >
-            <View style={{ position: 'absolute', right: -10, bottom: -15, width: '55%', height: '100%' }}>
-                <Image 
-                  source={require('../../assets/roommate_find.png')} 
-                  contentFit="contain"
-                  style={{ width: '100%', height: '100%' }}
-                  cachePolicy="disk"
-                />
-            </View>
-            <View className="p-4 justify-center h-full z-10 w-[50%]">
-              <Text className="text-[14px] font-extrabold text-[#1B1B1B] leading-5 mb-2">Roommate Finder</Text>
-              <View className="bg-white self-start px-3 py-2 rounded-full shadow-sm">
-                <Text className="text-[#006B42] text-[8px] font-bold">Search Now</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
+        <Text 
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          className="font-black text-[#1A1A1A] text-[14px] tracking-tight mb-0.5"
+        >
+          Find Roommate
+        </Text>
+        
+        <Text className="text-[#666666] text-[9px] font-bold leading-3" numberOfLines={2}>
+          Connect with verified roommates near you.
+        </Text>
+      </View>
 
-          <TouchableOpacity 
-            activeOpacity={0.9}
-            onPress={() => router.push('/roommates/choice')}
-            className="flex-1 h-36 bg-[#FFF9E1] rounded-[28px] items-center justify-center p-2" 
-          >
-            <View className="mb-1 relative">
-              <Ionicons name="home" size={32} color="#006B42" />
-              <View className="absolute -bottom-1 -right-1 bg-[#FFF9E1] rounded-full">
-                <Ionicons name="add-circle" size={16} color="#006B42"/>
-              </View>
-            </View>
-            <Text className="text-[#006B42] text-[12px] font-bold text-center leading-4">List a Room</Text>
-          </TouchableOpacity>
+      {/* Premium Green Interactive Capsule Button */}
+      <View className="bg-[#006B42] self-start px-3 py-1 rounded-full mt-1 shadow-sm">
+        <Text className="font-black text-white text-[9px]">
+          Search Now
+        </Text>
+      </View>
+    </View>
+  </TouchableOpacity>
+
+
+  {/* 2. LIST A ROOM CARD (Right Asymmetrical Card - Absolute Width Percentage) */}
+  <TouchableOpacity 
+    activeOpacity={0.9}
+    onPress={() => router.push('/roommates/choice')}
+    className="w-[35%] h-36 bg-[#FFF9F2] border border-[#FFE8CC] rounded-[24px] p-3.5 justify-between" 
+  >
+    {/* Text & Icon Stack Container */}
+    <View className="flex-1 justify-between w-full">
+      <View>
+        {/* Soft Circular Icon Badge with Sub-Icon Layer */}
+        <View className="w-6 h-6 rounded-full bg-[#FFE8CC] items-center justify-center mb-1 relative self-start">
+          <Ionicons name="home" size={12} color="#D97706" />
+          <View className="absolute -bottom-0.5 -right-0.5 bg-[#FFF9F2] rounded-full p-[0.5px]">
+            <Ionicons name="add-circle" size={8} color="#D97706"/>
+          </View>
         </View>
 
-        <View className="mb-4 mt-4">
-  {/* Header */}
-  <View className="flex-row items-center justify-between px-4 mb-4">
-    <Text className="text-xl font-medium text-gray-900">Featured Listings</Text>
-    {!storeLoading && (
-      <TouchableOpacity onPress={() => router.push('/featured')}>
-        <Ionicons name="arrow-forward" size={22} color="#16a34a" />
-      </TouchableOpacity>
-    )}
+        <Text 
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          className="font-black text-[#1A1A1A] text-[14px] tracking-tight mb-0.5"
+        >
+          List a Room
+        </Text>
+
+        <Text className="text-[#666666] text-[9px] font-bold leading-3" numberOfLines={2}>
+          Post your space fast.
+        </Text>
+      </View>
+
+      {/* Premium White Interactive Capsule Button */}
+      <View className="bg-white border border-gray-200 self-start px-2.5 py-1 rounded-full mt-1 shadow-sm">
+        <Text className="font-black text-[#1A1A1A] text-[9px]">
+          List Now
+        </Text>
+      </View>
+    </View>
+  </TouchableOpacity>
+
+</View>
+
+
+{/* --- FEATURED LISTINGS SECTION --- */}
+<View className="mb-4 mt-4 bg-white">
+  
+  {/* Premium Clean Header Row */}
+  <View className="px-5 flex-row justify-between items-center mb-4 mt-2">
+  {/* Left Side: Icon + Title Group */}
+  <View className="flex-row items-center">
+    <Ionicons name="sparkles" size={20} color="#D97706" />
+    <Text className="text-[#1A1A1A] text-xl font-black tracking-tight ml-2">
+      Featured Listings
+    </Text>
   </View>
+  
+  {/* Right Side: See All Link */}
+  <TouchableOpacity 
+    activeOpacity={0.7}
+    onPress={() => router.push('/featured')}
+    className="flex-row items-center"
+  >
+    <Text className="text-[#D97706] text-xs font-bold mr-0.5">See All</Text>
+    <Ionicons name="chevron-forward" size={14} color="#D97706" />
+  </TouchableOpacity>
+</View>
 
-  {/* Slider */}
+  {/* Premium Horizontal Content Slider Area */}
   <ScrollView 
     horizontal 
     showsHorizontalScrollIndicator={false} 
-    contentContainerStyle={{ paddingLeft: 16, paddingRight: 16 }}
+    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
     onScroll={handleScroll}
     scrollEventThrottle={16}
-    snapToInterval={width * 0.75 + 12} // Should match card width + mr-3
+    snapToInterval={172} // Matches card width (160px) + margin spacing (12px)
     decelerationRate="fast"
     ref={scrollViewRef}
   >
     {storeLoading && featured.length === 0 ? (
       [1, 2, 3].map((val) => <FeaturedSkeleton key={`featured-skel-${val}`} />)
     ) : (
-      featured.map((item, index) => (
-        <TouchableOpacity
-          key={`featured-${item.id}`}
-          onPress={() => {
-            scrollToItem(index); 
-            router.push(`/listing/${item.id}`);
-          }}
-          // Updated width to match your Skeleton's width (0.75) for consistency
-          style={{ width: width * 0.75, height: 180 }} 
-          className="mr-3 relative overflow-hidden rounded-[20px] bg-gray-200"
-        >
-          <Image
-            source={{ uri: String(item.images?.[0] || item.images) }}
-            style={{ width: '100%', height: '100%' }}
-            className="rounded-[20px]"
-            cachePolicy="disk"
-          />
-        </TouchableOpacity>
-      ))
+      featured.map((item, index) => {
+        const itemImage = String(item.images?.[0] || item.images);
+        const itemPrice = item.price ? `₦${Number(item.price).toLocaleString()}` : "Contact for Price";
+        const itemLocation = item.location || "Lagos";
+
+        return (
+          <TouchableOpacity
+            key={`featured-${item.id}`}
+            activeOpacity={0.95}
+            onPress={() => {
+              scrollToItem(index); 
+              router.push(`/listing/${item.id}`);
+            }}
+            className="bg-white border border-gray-100 rounded-[24px] mr-3 w-[160px] overflow-hidden"
+            style={{
+              elevation: 4,
+              shadowColor: '#AAB8C2',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.12,
+              shadowRadius: 8,
+            }}
+          >
+            {/* Aspect Container for Product Asset Imagery */}
+            <View className="w-full h-[140px] bg-gray-50 relative">
+              <Image
+                source={{ uri: itemImage }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="cover"
+                cachePolicy="disk"
+              />
+              
+              {/* Absolute Top Floating Heart/Favorites Toggle Action */}
+              <TouchableOpacity 
+                activeOpacity={0.8}
+                className="absolute top-2 right-2 bg-white w-7 h-7 rounded-full items-center justify-center shadow-sm"
+                onPress={() => { /* Toggle your item favorite profile state logic */ }}
+              >
+                <Ionicons name="heart-outline" size={15} color="#1A1A1A" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Structured Info Card Metadata Stack */}
+            <View className="p-3">
+              <Text 
+                className="text-gray-900 text-[13px] font-bold mb-0.5" 
+                numberOfLines={1}
+              >
+                {item.title}
+              </Text>
+              
+              <Text 
+                className="text-[#005d14] text-[12px] font-black mb-1"
+                numberOfLines={1}
+              >
+                {itemPrice}
+              </Text>
+
+              {/* Geo-location Metadata Layout Row */}
+              <View className="flex-row items-center opacity-60">
+                <Ionicons name="location-sharp" size={10} color="#888888" />
+                <Text className="text-gray-500 text-[10px] font-bold ml-0.5 capitalize" numberOfLines={1}>
+                  {itemLocation}
+                </Text>
+              </View>
+            </View>
+
+          </TouchableOpacity>
+        );
+      })
     )}
   </ScrollView>
 
-  {/* Pagination Dots - Fixed Visibility */}
-  <View className="flex-row justify-center items-center mt-4 h-2"> 
+  {/* Refined Proportional Pagination System Indicators */}
+  <View className="flex-row justify-center items-center mt-2 h-2"> 
     {(featured.length > 0 ? featured : [1, 2, 3]).map((_, index) => {
       const isActive = activeIndex === index;
       return (
         <View
           key={`dot-${index}`}
-          className={`h-1.5 rounded-full mx-1 ${
-            isActive ? 'w-4 bg-primary' : 'w-1.5 bg-gray-300'
+          className={`h-1.5 rounded-full mx-0.5 ${
+            isActive ? 'w-4 bg-[#005d14]' : 'w-1.5 bg-gray-200'
           }`}
         />
       );
@@ -423,13 +619,150 @@ export default function HomeScreen() {
   </View>
 </View>
 
-        <View className="px-4 mt-2 mb-8 flex-row gap-3">
+        <View className="px-4 mt-2 mb-4 flex-row gap-3">
           <FeatureCard title="Accommodations" route="/accommodations" icon="business" bgColor="#ffffff" />
           <FeatureCard title="Services" route="/services" icon="construct" bgColor="#ffffff" />
         </View>
 
+        {/* --- AUTOMOBILE/VEHICLE LISTINGS SECTION --- */}
+<View className="mb-6 mt-2 bg-white">
+  
+  {/* Premium Clean Header Row */}
+  <View className="px-5 flex-row justify-between items-center mb-4">
+    {/* Left Side: Icon + Title Group */}
+    <View className="flex-row items-center">
+      <Ionicons name="car-sport" size={22} color="#005d14" />
+      <Text className="text-[#1A1A1A] text-xl font-black tracking-tight ml-2">
+        Vehicles
+      </Text>
+    </View>
+    
+    {/* Right Side: See All Link */}
+    <TouchableOpacity 
+      activeOpacity={0.7}
+      onPress={() => router.push('/vehicles/vehicles')} 
+      className="flex-row items-center"
+    >
+      <Text className="text-[#005d14] text-xs font-bold mr-0.5">See All</Text>
+      <Ionicons name="chevron-forward" size={14} color="#005d14" />
+    </TouchableOpacity>
+  </View>
+
+  {/* Premium Horizontal Content Slider Area */}
+  <ScrollView 
+    horizontal 
+    showsHorizontalScrollIndicator={false} 
+    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
+    snapToInterval={172} 
+    decelerationRate="fast"
+  >
+    {storeLoading && vehicles.length === 0 ? (
+      [1, 2, 3].map((val) => <FeaturedSkeleton key={`auto-skel-${val}`} />)
+    ) : (
+      // Maps directly from the pristine store vehicles table array
+      vehicles
+        .slice(0, 6) 
+        .map((item) => {
+          // 1️⃣ Map your table's custom image_urls field safely
+          const itemImage = Array.isArray(item.image_urls) && item.image_urls.length > 0 
+            ? item.image_urls[0] 
+            : String(item.image_urls || '');
+
+          // 2️⃣ Generate a fallback title using your database's 'make' and 'model' keys
+          const itemTitle = item.title || `${item.make || ''} ${item.model || ''}`.trim() || "Vehicle";
+          
+          const itemPrice = item.price ? `₦${Number(item.price).toLocaleString()}` : "Contact for Price";
+          
+          // Fallback context default if location metadata isn't strictly on the vehicle table schema yet
+          const itemLocation = item.location || "Lagos";
+
+          return (
+            <TouchableOpacity
+              key={`auto-${item.id}`}
+              activeOpacity={0.95}
+              onPress={() => router.push(`/vehicles/${item.id}`)}
+              className="bg-white border border-gray-100 rounded-[24px] mr-3 w-[160px] overflow-hidden"
+              style={{
+                elevation: 4,
+                shadowColor: '#AAB8C2',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.12,
+                shadowRadius: 8,
+              }}
+            >
+              {/* Aspect Container for Vehicle Imagery */}
+              <View className="w-full h-[140px] bg-gray-50 relative">
+                {itemImage ? (
+                  <Image
+                    source={{ uri: itemImage }}
+                    style={{ width: '100%', height: '100%' }}
+                    contentFit="cover"
+                    cachePolicy="disk"
+                  />
+                ) : (
+                  <View className="w-full h-full items-center justify-center bg-gray-100">
+                    <Ionicons name="car-outline" size={32} color="#9ca3af" />
+                  </View>
+                )}
+                
+                
+              </View>
+
+              {/* Structured Info Card Metadata Stack */}
+              <View className="p-3">
+                <Text 
+                  className="text-gray-900 text-[13px] font-bold mb-0.5" 
+                  numberOfLines={1}
+                >
+                  {itemTitle}
+                </Text>
+                
+                <Text 
+                  className="text-[#005d14] text-[12px] font-black mb-1"
+                  numberOfLines={1}
+                >
+                  {itemPrice}
+                </Text>
+
+                {/* Geo-location Metadata Layout Row */}
+                <View className="flex-row items-center opacity-60">
+                  <Ionicons name="location-sharp" size={10} color="#888888" />
+                  <Text className="text-gray-500 text-[10px] font-bold ml-0.5 capitalize" numberOfLines={1}>
+                    {itemLocation}
+                  </Text>
+                </View>
+              </View>
+
+            </TouchableOpacity>
+          );
+        })
+    )}
+  </ScrollView>
+</View>
+
+
+      {/* Header */}
+  <View className="px-5 flex-row justify-between items-center mb-4">
+  {/* Left Side: Icon + Title Group */}
+  <View className="flex-row items-center">
+    <Ionicons name="time" size={20} color="#EAA535" />
+    <Text className="text-[#1A1A1A] text-xl font-black tracking-tight ml-2">
+      Recent Listings
+    </Text>
+  </View>
+  
+  {/* Right Side: See All Link */}
+  <TouchableOpacity 
+    activeOpacity={0.7}
+    onPress={() => router.push('/recent')}
+    className="flex-row items-center"
+  >
+    <Text className="text-[#005d14] text-xs font-bold mr-0.5">See All</Text>
+    <Ionicons name="chevron-forward" size={14} color="#005d14" />
+  </TouchableOpacity>
+</View>
         <View className="px-4 mb-6">
-          <Text className="text-xl font-medium mb-2 text-gray-900">Recent Listings</Text>
+          
           <ScrollView
             ref={categoryScrollRef}
             horizontal
@@ -443,11 +776,16 @@ export default function HomeScreen() {
                 <TouchableOpacity 
                   key={`cat-item-${cat.id}-${index}`} 
                   onPress={() => {
-                    setSelectedCategorySlug(cat.slug);
-                    categoryScrollRef.current?.scrollTo({
-                      x: index * 88 - (width / 2) + 44, 
-                      animated: true,
-                    });
+                    // If the clicked category is already selected, unclick it (reset to "all")
+                    if (selectedCategorySlug === cat.slug) {
+                      setSelectedCategorySlug("all");
+                    } else {
+                      setSelectedCategorySlug(cat.slug);
+                      categoryScrollRef.current?.scrollTo({
+                        x: index * 88 - (width / 2) + 44, 
+                        animated: true,
+                      });
+                    }
                   }}
                   className="items-center mr-6"
                 >
@@ -472,7 +810,7 @@ export default function HomeScreen() {
         </View>
       </View>
     );
-  }, [storeLoading, featured, categories, firstName, userAvatar, hasUnread, selectedCategorySlug, router, activeIndex]);
+  }, [storeLoading, featured, categories, firstName, userAvatar, hasUnread, selectedCategorySlug, vehicles, router, activeIndex, listings, topSellers, sellersLoading]);
 
   return (
     <SafeAreaView className="flex-1 bg-app-bg">

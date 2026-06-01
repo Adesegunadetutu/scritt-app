@@ -93,6 +93,12 @@ export default function ListingCard({ item, variant = 'default', userId, onUnfav
     'service': 'services'
   };
 
+  // --- 4. LOCATION STRING TRUNCATION CONSTRAINT (MAX 18 CHARS) ---
+  const rawLocation = item.location || 'CAMP';
+  const displayLocation = rawLocation.length > 18 
+    ? `${rawLocation.substring(0, 15)}...` 
+    : rawLocation;
+
   const rawTable = item.origin_table || 'listings';
   const targetTable = tableMap[rawTable] || rawTable;
   const path = item.thumbnail || (item.images?.[0]) || item.image_url;
@@ -116,27 +122,29 @@ export default function ListingCard({ item, variant = 'default', userId, onUnfav
         <TouchableOpacity 
           onPress={toggleFavorite}
           disabled={loadingFavorite}
-          className="absolute top-3 right-3 bg-white/90 p-2 rounded-full shadow-sm"
+          className="absolute top-3 right-3 bg-white/90 p-1 rounded-full shadow-sm"
         >
           <Ionicons 
             name={isFavorited ? "heart" : "heart-outline"} 
-            size={18} 
+            size={16} 
             color={isFavorited ? "#ef4444" : "#1f2937"} 
           />
         </TouchableOpacity>
 
-        <View className="absolute top-3 left-3 bg-white/95 px-2.5 py-1.5 rounded-xl flex-row items-center shadow-sm">
+        {/* LOCATION BADGE WITH MAX 18 LETTER CONSTRAINT */}
+        <View className="absolute top-3 left-3 bg-white/95 px-2.5 py-1 rounded-xl flex-row items-center shadow-sm max-w-[150px]">
           <Ionicons name="location" size={12} color="#ef4444" />
-          <Text className="text-[10px] font-black ml-1 text-gray-800 uppercase tracking-tighter">
-            {item.location || 'CAMP'}
+          <Text className="text-[8px] font-black ml-1 text-gray-800 uppercase tracking-tighter">
+            {displayLocation}
           </Text>
         </View>
 
-        {isSponsored && isVerified && (
+        {/* {isSponsored && isVerified && (
           <View className="absolute bottom-3 right-3 bg-white rounded-full p-0.5 shadow-sm">
             <CheckCircle2 size={20} color="#16a34a" fill="white" />
           </View>
-        )}
+        )} */}
+
       </View>
 
       <View className="p-3">
@@ -158,11 +166,7 @@ export default function ListingCard({ item, variant = 'default', userId, onUnfav
                 <CheckCircle2 size={16} color="#16a34a" fill="#f0fdf4" />
               </View>
             )}
-            {isSponsored && (
-              <View className="bg-primary rounded-full p-1.5 shadow-sm">
-                <ArrowRight size={14} color="white" />
-              </View>
-            )}
+            
           </View>
         </View>
       </View>

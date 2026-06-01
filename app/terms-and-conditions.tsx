@@ -53,6 +53,11 @@ export default function TermsAndConditions() {
           content="You agree not to use the service for any unlawful purpose, including but not limited to scamming, harassment, or posting unauthorized advertisements." 
         />
 
+        <Section 
+  title="5. Third-Party Advertisements" 
+  content="Scritt uses Google AdSense/AdMob to display advertisements. We are not responsible for the content, privacy policies, or practices of any third-party ads. By using the service, you acknowledge that certain data may be processed by Google as described in our Privacy Policy." 
+/>
+
         <View className="h-20" /> {/* Extra space at bottom */}
       </ScrollView>
 

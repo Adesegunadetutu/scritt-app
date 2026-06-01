@@ -9,6 +9,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import { ChevronLeft, Search, MapPin, WifiOff } from 'lucide-react-native';
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
+import BannerAdComponent from '@/components/BannerAdComponent';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // --- CONSTANTS ---
 const CATEGORIES = ["All", "household", "electronics", "fashion", "services", "furniture", "gadgets", "food", "books"];
@@ -38,25 +40,29 @@ export default function FeaturedListingsScreen() {
 
   // 2. Fetch logic (wired like RoommateFeed)
   const fetchFeatured = async (showLoading = true) => {
-    if (!isConnected) return;
+  if (!isConnected) return;
+  
+  try {
+    if (showLoading) setLoading(true);
     
-    try {
-      if (showLoading) setLoading(true);
-      const { data, error } = await supabase
-        .from('listings')
-        .select('*')
-        .eq('is_featured', true)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      setItems(data || []);
-    } catch (error) {
-      console.error("Error fetching featured:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    const { data, error } = await supabase
+      .from('listings')
+      .select(`
+        *,
+        profiles!inner(is_verified)
+      `)
+      .eq('profiles.is_verified', true) // Look at the profile table for the column
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    setItems(data || []);
+  } catch (error) {
+    console.error("Error fetching featured:", error);
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
 
   // 3. Realtime Updates
   useEffect(() => {
@@ -159,6 +165,7 @@ export default function FeaturedListingsScreen() {
           <Search size={18} color="#6b7280" />
           <TextInput
             placeholder="Search deals..."
+            placeholderTextColor="#9ca3af"
             value={searchQuery}
             onChangeText={setSearchQuery}
             className="flex-1 ml-3 text-sm py-1"
@@ -167,6 +174,7 @@ export default function FeaturedListingsScreen() {
           <MapPin size={18} color="#16a34a" />
         </View>
       </View>
+       <BannerAdComponent containerClass="mb-2 bg-gray-50" />
 
       {/* Categories */}
       <View className="py-4">

@@ -10,9 +10,58 @@ import "../global.css";
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useAppInit } from "../src/hooks/useAppInit";
+import * as Linking from 'expo-linking';
+import { initMobileAds } from "@/lib/ads/initMobileAds";
 import { FavoritesProvider } from '../src/context/FavoritesContext';
 import { useNetworkObserver } from '../src/hooks/useNetworkObserver';
 import OfflineNotice from '@/components/OfflineNotice';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { useAppUpdateChecker } from '../src/hooks/useAppUpdateChecker';
+
+
+
+// --- LOG MANAGEMENT ---
+if (__DEV__) {
+  const ignoredLogs = [
+    // Startup & Hydration (from useAppInit)
+    "INIT START",
+    "CACHE LOADED",
+    "SETTING READY TRUE",
+    
+    // Network & Syncing (from useNetworkObserver)
+    "Network Restored: Syncing fresh data...",
+    
+    // Auth & Identity
+    "👤 User:",
+    "🔔 Auth Event:",
+    
+    // Notifications & Tokens
+    "📱 Token:",
+    "🚀 Saving token to DB",
+    "✅ DATABASE UPDATED",
+    "🔐 Permission Status:",
+    "✅ Notification channel ready",
+    "✅ TOKEN GENERATED",
+    "📱 TOKEN RECEIVED",
+    
+    // Third-Party Services
+    "AdMob Initialized!",
+    "Realtime subscription status:"
+  ];
+
+  const originalLog = console.log;
+  console.log = (...args) => {
+    const message = args[0]?.toString() || "";
+    // If the log starts with or contains any of our ignored strings, skip it
+    if (ignoredLogs.some(log => message.includes(log))) {
+      return;
+    }
+    originalLog(...args);
+  };
+}
+
+// put this OUTSIDE your component (top of file)
+let recoveryHandled = false;
 
 // 🔔 NOTIFICATION HANDLER
 Notifications.setNotificationHandler({
@@ -67,7 +116,11 @@ async function registerForPushNotificationsAsync() {
       await Notifications.setNotificationChannelAsync("default", {
         name: "default",
         importance: Notifications.AndroidImportance.MAX,
-      });
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#FF231F7C",
+      }).then(() => {
+      console.log("✅ Notification channel ready");
+    });
     }
 
     // 🚀 GET TOKEN
@@ -107,6 +160,9 @@ function RootLayoutNav() {
 
   const notificationListener = useRef<any>(null);
   const responseListener = useRef<any>(null);
+  const [isRecovering, setIsRecovering] = useState(false);
+  
+const hasHandledRecovery = useRef(false);
 
   // 🔔 HANDLE COLD START
   const lastResponse = Notifications.useLastNotificationResponse();
@@ -120,7 +176,7 @@ function RootLayoutNav() {
       const { screen, id } = lastResponse.notification.request.content.data;
 
       setTimeout(() => {
-        router.push({
+        router.replace({
           pathname: screen as any,
           params: id ? { id: id as string } : {},
         });
@@ -139,19 +195,31 @@ function RootLayoutNav() {
         console.warn("⚠️ Forcing app ready...");
         setForceReady(true);
       }
-    }, 5000);
+    }, 3000);
     return () => clearTimeout(timer);
   }, [isAppReady]);
 
   // PASSWORD RECOVERY
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        router.push('/auth/update-password' as any);
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+
+// Inside RootLayoutNav
+useEffect(() => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    console.log("🔔 Auth Event:", event);
+    
+    // Catch the recovery event
+   if (event === 'PASSWORD_RECOVERY' && !recoveryHandled) {
+  setIsRecovering(true);
+}
+    
+    // Reset recovery mode only if the user explicitly signs out 
+    // or if the password is successfully updated (handled in the update screen)
+    if (event === 'SIGNED_OUT') {
+      setIsRecovering(false);
+    }
+  });
+  
+  return () => subscription.unsubscribe();
+}, []);
 
   // 🔔 STEP 1: GET TOKEN ONCE
   useEffect(() => {
@@ -166,24 +234,33 @@ function RootLayoutNav() {
 }, []);
 
   // 🔔 STEP 2: SAVE TOKEN WHEN USER IS READY
+  // 🔔 STEP 2: SAVE TOKEN & DEVICE INFO WHEN USER IS READY
   useEffect(() => {
-    console.log("👤 User:", user);
-    console.log("📱 Token:", expoPushToken);
-
     if (expoPushToken && user) {
-      console.log("🚀 Saving token to DB...");
+      const syncDeviceData = async () => {
+        console.log("🚀 Syncing token and device info...");
 
-      supabase
-        .from('profiles')
-        .update({ push_token: expoPushToken })
-        .eq('id', user.id)
-        .then(({ error }) => {
-          if (error) {
-            console.error("❌ SUPABASE ERROR:", error.message);
-          } else {
-            console.log("✅ DATABASE UPDATED SUCCESSFULLY!");
-          }
-        });
+        // Capture hardware details
+        const deviceId = Device.osBuildId || "unknown_id"; 
+        const deviceName = Device.deviceName || "Unknown Device";
+
+        const { error } = await supabase
+          .from('profiles')
+          .update({ 
+            push_token: expoPushToken,
+            last_device_id: deviceId,    // Ensure this column exists in SQL
+            device_name: deviceName      // Ensure this column exists in SQL
+          })
+          .eq('id', user.id);
+
+        if (error) {
+          console.error("❌ SUPABASE ERROR:", error.message);
+        } else {
+          console.log("✅ DB UPDATED: Token + Device ID saved.");
+        }
+      };
+
+      syncDeviceData();
     }
   }, [expoPushToken, user]);
 
@@ -193,7 +270,7 @@ function RootLayoutNav() {
       const data = response.notification.request.content.data as { screen?: string; id?: string };
 
       if (data?.screen) {
-        router.push({
+        router.replace({
           pathname: data.screen as any,
           params: data.id ? { id: data.id } : {}
         });
@@ -205,33 +282,103 @@ function RootLayoutNav() {
     };
   }, []);
 
-  // AUTH ROUTING
-  useEffect(() => {
-    if (authLoading || !isAppReady) return;
+ useEffect(() => {
+  const handleDeepLink = async (url: string) => {
+    if (!url) return;
 
-    const inAuthGroup = segments[0] === 'auth';
+    if (recoveryHandled) return;
 
-    if (!user && !inAuthGroup) {
-      router.replace('/auth/signin');
-    } else if (user && inAuthGroup) {
-      router.replace('/(tabs)');
+    console.log("🔗 Incoming URL:", url);
+
+    if (url.includes("type=recovery")) {
+      recoveryHandled = true;
+
+      console.log("🟣 Recovery link detected");
+
+      setIsRecovering(true);
+
+      const { queryParams } = Linking.parse(url);
+
+      if (queryParams?.access_token && queryParams?.refresh_token) {
+        await supabase.auth.setSession({
+          access_token: queryParams.access_token as string,
+          refresh_token: queryParams.refresh_token as string,
+        });
+      }
+
+      router.replace('/auth/update-password');
     }
-  }, [user, authLoading, segments, isAppReady]);
+  };
+
+  let isMounted = true;
+
+  // Cold start
+  Linking.getInitialURL().then((url) => {
+    if (url && isMounted) handleDeepLink(url);
+  });
+
+  // When app is already open
+  const sub = Linking.addEventListener("url", (event) => {
+    handleDeepLink(event.url);
+  });
+
+  return () => {
+    isMounted = false;
+    sub.remove();
+  };
+}, []);
+
+// AUTH ROUTING
+useEffect(() => {
+  if (authLoading || !isAppReady) return;
+
+  const inAuthGroup = segments[0] === 'auth';
+  const isUpdatePasswordPage = segments.includes('update-password');
+
+  // 🚨 1. PRIORITY: If we are recovering, STAY on update-password
+  if (isRecovering || isUpdatePasswordPage) {
+    if (!isUpdatePasswordPage) {
+      router.replace('/auth/update-password');
+    }
+    return; // Stop execution here so we don't hit the "user" check below
+  }
+
+  // 🚨 2. NORMAL AUTH FLOW
+  if (!user) {
+    if (!inAuthGroup) {
+      router.replace('/auth/signin');
+    }
+    return;
+  }
+
+  // This block was yanking you home. 
+  // We added the return above to make sure this is skipped during recovery.
+  if (user && inAuthGroup) {
+    router.replace('/(tabs)');
+  }
+}, [user, authLoading, segments, isAppReady, isRecovering]);
+
+
+useEffect(() => {
+  initMobileAds();
+}, []);
 
   // HIDE SPLASH
-  useEffect(() => {
-    if (isAppReady && !authLoading) {
-      SplashScreen.hideAsync();
+ useEffect(() => {
+  const hide = async () => {
+    if (isAppReady) {
+      try {
+        await SplashScreen.hideAsync();
+      } catch (e) {
+        console.log("Splash already hidden");
+      }
     }
-  }, [isAppReady, authLoading]);
+  };
 
-  if (!isAppReady) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text>Loading app...</Text>
-      </View>
-    );
-  }
+  hide();
+}, [isAppReady]);
+
+  if (!isAppReady) return null;
 
 
   return (
@@ -263,12 +410,15 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  useAppUpdateChecker();
   return (
-    <AuthProvider>
-      <FavoritesProvider>
-        <RootLayoutNav />
-      </FavoritesProvider>
-    </AuthProvider>
+    <KeyboardProvider>
+      <AuthProvider>
+        <FavoritesProvider>
+          <RootLayoutNav />
+        </FavoritesProvider>
+      </AuthProvider>
+    </KeyboardProvider>
   );
 }
 

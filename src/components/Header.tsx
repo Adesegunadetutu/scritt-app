@@ -42,6 +42,7 @@ export default function Header({ title, showBackButton }: HeaderProps) {
       console.log("Error fetching name for header:", error);
     }
   };
+  
 
   /* --- LOCATION LOGIC COMMENTED OUT ---
   const fetchCurrentLocation = async () => {
@@ -90,7 +91,7 @@ export default function Header({ title, showBackButton }: HeaderProps) {
 
   return (
     <View className="pt-2 bg-white border-b border-gray-50 pb-2">
-      <View className="px-4 flex-row items-center justify-between">
+      <View className="px-6 flex-row items-center justify-between">
         
         {/* Left Side: Back Button OR Logo */}
         <View className="flex-row items-center">
@@ -111,18 +112,25 @@ export default function Header({ title, showBackButton }: HeaderProps) {
           )}
         </View>
 
-        {/* Right Side: Roommate Finder (Replaces Location) */}
+       
         {!title && (
-          <TouchableOpacity 
-            onPress={() => router.push('/roommates')} 
-            className="flex-row items-center  px-3 py-1.5 rounded-full"
-          >
-            <Ionicons name="people-outline" size={16} color="#16a34a" />
-            <Text className="ml-1.5 text-green-700 font-bold text-sm">
-              Find Roommate
-            </Text>
-          </TouchableOpacity>
-        )}
+  <TouchableOpacity 
+    onPress={() => {
+      try {
+        router.push('/vehicles/vehicles');
+      } catch (err) {
+        console.warn("Navigation context not ready yet. Retrying on layout load...", err);
+      }
+    }} 
+    activeOpacity={0.8}
+    className="flex-row items-center bg-gray-50 border border-gray-100 px-3.5 py-1.5 rounded-full shadow-sm"
+  >
+    <Ionicons name="car-sport" size={15} color="#005d14" />
+    <Text className="ml-1.5 text-primary font-black text-xs uppercase tracking-wider">
+      Find Vehicles
+    </Text>
+  </TouchableOpacity>
+)}
 
         {/* --- COMMENTED OUT LOCATION VIEW ---
         {!title && (

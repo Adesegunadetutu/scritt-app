@@ -116,6 +116,7 @@ export default function EditProfile() {
           <TextInput
             className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-gray-900"
             placeholder="Your Full Name"
+            placeholderTextColor="#9CA3AF"
             value={fullName}
             onChangeText={setFullName}
             editable={selectedSection === 'name'}

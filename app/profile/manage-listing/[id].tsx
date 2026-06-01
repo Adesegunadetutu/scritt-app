@@ -98,7 +98,7 @@ export default function ManageListing() {
           
           {/* Image Section */}
           <View className="px-4 mt-4">
-            <View className="w-full h-64 rounded-[30px] overflow-hidden bg-gray-50 shadow-sm border border-gray-100">
+            <View className="w-full h-72 rounded-[30px] overflow-hidden bg-gray-50 shadow-sm border border-gray-100">
               <Image 
                 source={{ uri: imageUrl }}
                 style={{ width: '100%', height: '100%' }}
@@ -126,12 +126,28 @@ export default function ManageListing() {
             </View>
 
             {/* Performance Insights */}
-            <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Performance</Text>
-            <View className="flex-row justify-between mb-8">
-              <StatCard icon="eye-outline" label="Views" value="142" color="#3b82f6" />
-              <StatCard icon="heart-outline" label="Saves" value="28" color="#ef4444" />
-              <StatCard icon="share-social-outline" label="Shares" value="9" color="#16a34a" />
-            </View>
+            {/* Performance Insights */}
+          <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Performance</Text>
+          <View className="flex-row justify-between mb-8">
+            <StatCard 
+              icon="eye-outline" 
+              label="Views" 
+              value="Coming Soon" 
+              color="#3b82f6" 
+            />
+            <StatCard 
+              icon="heart-outline" 
+              label="Saves" 
+              value="Coming Soon" 
+              color="#ef4444" 
+            />
+            <StatCard 
+              icon="share-social-outline" 
+              label="Shares" 
+              value="Coming Soon" 
+              color="#16a34a" 
+            />
+          </View>
 
             {/* Description Section */}
             <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Item Description</Text>
@@ -156,7 +172,7 @@ export default function ManageListing() {
         <View className="absolute bottom-0 w-full bg-white border-t border-gray-100 px-6 py-4 flex-row items-center space-x-3 pb-8">
           <TouchableOpacity 
             onPress={() => router.push(`/create-listing?editId=${id}`)}
-            className="flex-1 h-14 bg-[#16a34a] rounded-2xl items-center justify-center flex-row shadow-sm"
+            className="flex-1 h-14 bg-primary rounded-2xl items-center justify-center flex-row shadow-sm"
           >
             <Ionicons name="pencil" size={18} color="white" style={{marginRight: 8}} />
             <Text className="font-bold text-white text-base">Edit</Text>
@@ -180,7 +196,13 @@ const StatCard = ({ icon, label, value, color }: any) => (
     <View style={{ backgroundColor: color + '10' }} className="p-2 rounded-full mb-1">
       <Ionicons name={icon} size={16} color={color} />
     </View>
-    <Text className="text-lg font-black text-gray-900">{value}</Text>
+    <Text 
+      numberOfLines={1}
+      adjustsFontSizeToFit // 👈 Prevents text from breaking the card layout
+      className="text-sm font-black text-gray-900" // Reduced from text-lg to text-sm for better fit
+    >
+      {value}
+    </Text>
     <Text className="text-[8px] text-gray-400 font-bold uppercase tracking-tighter">{label}</Text>
   </View>
 );

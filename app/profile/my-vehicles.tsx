@@ -53,57 +53,57 @@ const ShimmerEffect = ({ width, height, className }: { width: any, height: numbe
 };
 
 const ListingRowSkeleton = () => (
-  <View className="flex-row bg-[#ffffff] rounded-xl p-4 mb-3 items-center border border-gray-50">
-    <ShimmerEffect width={80} height={80} className="rounded-2xl" />
-    <View className="flex-1 ml-4 h-[80px] justify-between">
+  <View className="flex-row bg-app-bg rounded-xl p-4 mb-3 items-center border border-gray-50">
+    <ShimmerEffect width={90} height={90} className="rounded-xl" />
+    <View className="flex-1 ml-4 h-[90px] justify-between">
       <View>
-        <ShimmerEffect width="60%" height={16} className="rounded" />
-        <ShimmerEffect width="40%" height={10} className="rounded mt-2" />
+        <ShimmerEffect width="75%" height={16} className="rounded" />
+        <ShimmerEffect width="100%" height={12} className="rounded mt-2" />
       </View>
       <View className="flex-row justify-between items-center">
-        <ShimmerEffect width={70} height={12} className="rounded" />
-        <ShimmerEffect width={50} height={20} className="rounded" />
+        <ShimmerEffect width={80} height={12} className="rounded" />
+        <ShimmerEffect width={60} height={28} className="rounded" />
       </View>
     </View>
   </View>
 );
 
 // --- MAIN SCREEN ---
-export default function MyRoommatesScreen() {
+export default function MyVehiclesScreen() {
   const router = useRouter();
-  const [myRequests, setMyRequests] = useState<any[]>([]);
+  const [myItems, setMyItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchMyRoommateRequests();
+    fetchMyVehicles();
   }, []);
 
-  const fetchMyRoommateRequests = async () => {
+  const fetchMyVehicles = async () => {
     try {
       setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       
       if (user) {
         const { data, error } = await supabase
-          .from('roommate_requests')
+          .from('vehicles')
           .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setMyRequests(data || []);
+        setMyItems(data || []);
       }
     } catch (error) {
-      console.error('Error fetching roommate requests:', error);
+      console.error('Error fetching vehicles:', error);
     } finally {
       setTimeout(() => setLoading(false), 600);
     }
   };
 
-  const handleDeleteRequest = async (id: string) => {
+  const handleDelete = async (id: string) => {
     Alert.alert(
-      "Delete Request",
-      "Are you sure you want to delete this roommate listing?",
+      "Delete Listing",
+      "Are you sure you want to remove this vehicle listing? This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         { 
@@ -112,14 +112,17 @@ export default function MyRoommatesScreen() {
           onPress: async () => {
             try {
               const { error } = await supabase
-                .from('roommate_requests')
+                .from('vehicles')
                 .delete()
                 .eq('id', id);
 
               if (error) throw error;
-              setMyRequests((prev) => prev.filter((item) => item.id !== id));
+
+              // Update local state to remove the item immediately
+              setMyItems((prev) => prev.filter((item) => item.id !== id));
             } catch (error) {
-              Alert.alert("Error", "Failed to delete request.");
+              console.error('Error deleting vehicle:', error);
+              Alert.alert("Error", "Could not delete this listing.");
             }
           }
         }
@@ -128,68 +131,67 @@ export default function MyRoommatesScreen() {
   };
 
   const renderItem = ({ item }: { item: any }) => {
-    const imageKey = Array.isArray(item.images) && item.images.length > 0 
-      ? item.images[0] 
+    // Parse image_urls string arrays safely
+    const displayImage = Array.isArray(item.image_urls) && item.image_urls.length > 0 
+      ? item.image_urls[0] 
       : null;
 
-    const displayImage = imageKey 
-      ? `https://xaevvkjdcmcioswzalyr.supabase.co/storage/v1/object/public/roommate-listings/${imageKey}`
-      : null;
+    // Render cleanly formatted badge names for conditions matching your slugs
+    const formatCondition = (slug: string) => {
+      if (slug === 'locally_used') return 'Locally Used';
+      if (slug === 'brand_new') return 'Brand New';
+      return 'Tokunbo';
+    };
 
     return (
       <View className="bg-white flex-row p-4 mb-3 items-center shadow-sm rounded-2xl border border-gray-50">
         
-        {/* Navigation Wrapper for Content */}
+        {/* Navigation Area: User clicks this to edit/view details */}
         <TouchableOpacity 
           activeOpacity={0.7}
-          onPress={() => router.push(`/roommates/${item.id}`)}
+          onPress={() => router.push({ pathname: '/vehicles/add', params: { editId: item.id } })}
           className="flex-row flex-1 items-center"
         >
           <Image
             source={displayImage ? { uri: displayImage } : require("../../assets/profile.png")}
-            style={{ width: 80, height: 80, borderRadius: 16 }}
+            style={{ width: 90, height: 90, borderRadius: 12 }}
             contentFit="cover"
             transition={200}
           />
 
-          <View className="flex-1 ml-4 h-[80px] justify-between">
+          <View className="flex-1 ml-4 h-[90px] justify-between">
             <View>
               <View className="flex-row justify-between items-center">
-                <Text className="text-gray-900 font-bold text-base flex-1" numberOfLines={1}>
-                  {item.title || "Roommate Request"}
+                <Text className="text-gray-900 font-bold text-[14px] flex-1" numberOfLines={1}>
+                  {item.year_of_manufacture} {item.make} {item.model}
                 </Text>
-                <Ionicons name="chevron-forward" size={16} color="#D1D5DB" />
+                <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
               </View>
-              
-              {/* Request Type Badge */}
-              <View className={`self-start px-2 py-0.5 rounded mt-1 ${item.request_type === 'has_room' ? 'bg-blue-50' : 'bg-purple-50'}`}>
-                <Text className={`text-[9px] font-bold uppercase tracking-wider ${item.request_type === 'has_room' ? 'text-blue-600' : 'text-purple-600'}`}>
-                  {item.request_type === 'has_room' ? 'Has Room' : 'Needs Room'}
-                </Text>
-              </View>
+              <Text className="text-gray-500 text-[11px] mt-1" numberOfLines={1}>
+                📍 {item.location || "Location not specified"} • {item.body_color || 'No Color Specified'}
+              </Text>
             </View>
 
             <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center">
-                <Ionicons name="location-outline" size={12} color="#9ca3af" />
-                <Text className="text-gray-400 text-[11px] ml-1" numberOfLines={1}>
-                  {item.location || "Location not set"}
+              <View className="bg-green-50 px-2 py-0.5 rounded">
+                <Text className="text-primary font-bold text-[10px] uppercase">
+                  {formatCondition(item.condition)}
                 </Text>
               </View>
-              <Text className="text-primary font-black text-[13px]">
+              <Text className="text-gray-900 font-black text-[12px]">
                 ₦{item.price?.toLocaleString()}
               </Text>
             </View>
           </View>
         </TouchableOpacity>
 
-        {/* Delete Button */}
+        {/* Delete Action Button */}
         <TouchableOpacity 
-          onPress={() => handleDeleteRequest(item.id)}
+          onPress={() => handleDelete(item.id)}
           className="ml-2 p-2 bg-red-50 rounded-full"
           activeOpacity={0.6}
         >
-          <Ionicons name="trash-outline" size={18} color="#ef4444" />
+          <Ionicons name="trash-outline" size={20} color="#ef4444" />
         </TouchableOpacity>
       </View>
     );
@@ -201,10 +203,8 @@ export default function MyRoommatesScreen() {
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
-      <View 
-        style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
-        className="bg-white border-b border-gray-50 px-4 py-4 flex-row items-center justify-between"
-      >
+      <View style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
+            className="bg-white border-b border-gray-50 px-4 py-4 flex-row items-center justify-between">
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.back()} 
@@ -212,14 +212,13 @@ export default function MyRoommatesScreen() {
           >
             <Ionicons name="arrow-back" size={24} color="black" />
           </TouchableOpacity>
-          <Text className="text-lg font-black text-gray-900 ml-2">My Roommates</Text>
+          <Text className="text-lg font-black text-gray-900 ml-2">My Vehicles</Text>
         </View>
 
         <TouchableOpacity 
-          onPress={() => router.push('/roommates/choice')}
-          className="bg-primary w-9 h-9 rounded-full items-center justify-center shadow-md active:opacity-80"
-        >
-          <Ionicons name="add" size={24} color="white" />
+            onPress={() => router.push('/vehicles/add')}
+            className="bg-primary w-9 h-9 rounded-full items-center justify-center shadow-md">
+            <Ionicons name="add" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
@@ -230,28 +229,28 @@ export default function MyRoommatesScreen() {
             data={Array(5).fill({})}
             renderItem={() => <ListingRowSkeleton />}
             keyExtractor={(_, index) => `skel-${index}`}
-            contentContainerStyle={{ paddingTop: 20 }}
+            contentContainerStyle={{ paddingTop: 16 }}
           />
         ) : (
           <FlatList
-            data={myRequests}
+            data={myItems}
             keyExtractor={(item) => item.id.toString()}
             renderItem={renderItem}
-            contentContainerStyle={{ paddingTop: 20, paddingBottom: 40 }}
+            contentContainerStyle={{ paddingTop: 16, paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View className="items-center mt-20 px-10">
                 <View className="bg-gray-50 p-6 rounded-full">
-                  <Ionicons name="people-outline" size={50} color="#d1d5db" />
+                  <Ionicons name="car-sport-outline" size={50} color="#d1d5db" />
                 </View>
                 <Text className="text-gray-400 mt-4 text-center font-medium">
-                  Looking for a roommate? Post a request to find someone to share a space with!
+                  You haven't listed any vehicles yet.
                 </Text>
                 <TouchableOpacity 
-                  onPress={() => router.push('/add-roommate')}
-                  className="mt-6 border border-primary px-6 py-2 rounded-full"
+                  onPress={() => router.push('/vehicles/add')}
+                  className="mt-6 bg-primary px-8 py-3 rounded-full"
                 >
-                  <Text className="text-primary font-bold">Post Roommate Request</Text>
+                  <Text className="text-white font-bold">List a Vehicle</Text>
                 </TouchableOpacity>
               </View>
             }

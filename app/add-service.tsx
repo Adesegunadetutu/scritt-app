@@ -35,6 +35,7 @@ export default function AddServiceScreen() {
   const [images, setImages] = useState<string[]>([]);
   const [businessName, setBusinessName] = useState('');
   const [description, setDescription] = useState('');
+  const [price, setPrice] = useState(''); // Store as string for the input
   const [category, setCategory] = useState('Hairdresser');
   const [location, setLocation] = useState('');
   const { editId } = useLocalSearchParams();
@@ -68,6 +69,7 @@ export default function AddServiceScreen() {
       setCategory(data.category);
       setLocation(data.location_address);
       setIsVerified(data.is_verified);
+      setPrice(data.price?.toString() || '');
       setOffersHomeService(data.home_service);
       setAvailableWeekends(data.weekend_availability);
       setImages(data.images || []); 
@@ -177,6 +179,7 @@ export default function AddServiceScreen() {
         location_address: location,
         is_verified: isVerified,
         home_service: offersHomeService,
+        price: parseFloat(price),
         weekend_availability: availableWeekends,
         images: uploadedPaths, 
       };
@@ -294,6 +297,18 @@ export default function AddServiceScreen() {
             value={businessName}
             onChangeText={setBusinessName}
           />
+          {/* ADD THIS PRICE INPUT */}
+            <View className="bg-gray-50 rounded-2xl mb-4 flex-row items-center px-4">
+              <Text className="text-gray-400 font-bold mr-2">₦</Text>
+              <TextInput 
+                placeholder="Starting Price"
+                placeholderTextColor="#9CA3AF"
+                className="flex-1 py-4 font-semibold text-gray-800"
+                value={price}
+                onChangeText={(text) => setPrice(text.replace(/[^0-9]/g, ''))} // Only allow numbers
+                keyboardType="numeric"
+              />
+            </View>
 
           <TextInput 
             placeholder="Tell customers about your expertise..."

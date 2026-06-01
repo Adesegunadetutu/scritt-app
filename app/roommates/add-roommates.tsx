@@ -151,7 +151,8 @@ const isOwner = type === 'has_room';
     });
 
     if (error) throw error;
-    router.push('/roommates');
+
+router.replace('/roommates'); // Use replace instead of push
 
   } catch (err: any) {
     Alert.alert("Error", err.message);

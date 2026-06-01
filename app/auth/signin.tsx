@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useNetworkObserver } from '@/hooks/useNetworkObserver'; 
 
 export default function SignIn() {
@@ -56,7 +57,14 @@ export default function SignIn() {
         <Text className="text-xl font-bold text-gray-900 mt-6">Welcome Back</Text>
       </View>
 
-      <ScrollView className="flex-1 px-8 -mt-12" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView 
+        className="flex-1 px-8 -mt-12" 
+        showsVerticalScrollIndicator={false}
+        // This ensures the keyboard doesn't hide the "signup here" link
+        bottomOffset={Platform.OS === 'ios' ? 40 : 20}
+        // Allows clicking the login button while keyboard is still open
+        keyboardShouldPersistTaps="handled"
+      >
         {/* The Orange Card Container */}
         <View className="bg-secondary rounded-[30px] p-6 shadow-xl">
           
@@ -150,7 +158,7 @@ export default function SignIn() {
         )}
 
         <View className="h-20" />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

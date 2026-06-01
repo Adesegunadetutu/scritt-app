@@ -1,17 +1,27 @@
 {
   "expo": {
     "name": "Scritt",
-    "updates": {
-      "url": "https://u.expo.dev/33ac3f0b-27ed-45ad-8d92-c0a681d5aca6",
-      "fallbackToCacheTimeout": 5000
-    },
-    "slug": "scritt",
-    "version": "1.0.0",
+    "slug": "myapp",
+    "version": "1.0.5",
+    "owner": "empress1",
     "scheme": "com.adesegunadetutu.scritt",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/icon.png"
+    },
     "newArchEnabled": true,
+    "updates": {
+      "url": "https://u.expo.dev/33ac3f0b-27ed-45ad-8d92-c0a681d5aca6",
+      "fallbackToCacheTimeout": 5000
+    },
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#ffffff"
+    },
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -26,40 +36,48 @@
     },
     "android": {
       "package": "com.adesegunadetutu.scritt",
-      "versionCode": 2,
-      "softwareKeyboardLayoutMode": "resize",
+      "versionCode": 7,
+      "softwareKeyboardLayoutMode": "pan",
       "googleServicesFile": "./google-services.json",
-      "permissions": [
-        "INTERNET",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "CAMERA",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
-      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "INTERNET",
+        "android.permission.POST_NOTIFICATIONS",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED"
+      ],
       "queries": [
         {
-          "intent": {
-            "action": "android.intent.action.VIEW",
-            "data": {
-              "scheme": "whatsapp"
-            }
-          }
+          "package": "com.whatsapp"
         }
       ]
     },
-    "web": {
-      "favicon": "./assets/adaptive.png",
-      "bundler": "metro"
-    },
     "plugins": [
       "expo-router",
+      "./withAndroidReplaceColor",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "ndkVersion": "26.1.10909125",
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildToolsVersion": "35.0.0"
+          }
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-2069645946601625~4415780978",
+          "iosAppId": "ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"
+        }
+      ],
       "expo-notifications",
       [
         "expo-image-picker",
@@ -79,7 +97,6 @@
       "eas": {
         "projectId": "33ac3f0b-27ed-45ad-8d92-c0a681d5aca6"
       }
-    },
-    "owner": "empress1"
+    }
   }
 }

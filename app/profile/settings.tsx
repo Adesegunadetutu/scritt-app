@@ -11,6 +11,7 @@ import {
   Alert,
   Linking 
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +20,7 @@ import * as Notifications from 'expo-notifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -112,9 +114,10 @@ useEffect(() => {
 }, []); // The empty array [] means "run once when the page opens"
 
   const handleContact = (subject: string) => {
-    const email = "support@scritt.com"; 
-    Linking.openURL(`mailto:${email}?subject=${subject}`);
-  };
+  // Updated to your business email
+  const email = "info@empressexclusivecollections.com"; 
+  Linking.openURL(`mailto:${email}?subject=${encodeURIComponent(subject)}`);
+};
 
   const handleLogout = async () => {
   Alert.alert(
@@ -169,7 +172,11 @@ useEffect(() => {
         <Text className="text-xl font-bold text-gray-900">Settings</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} className="flex-1 px-4">
+            <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        className="flex-1 px-4"
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) }} // Adjusts for 3-button or gesture nav
+      >
         <View className="mt-6">
           <Text className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 px-2">
             Preferences

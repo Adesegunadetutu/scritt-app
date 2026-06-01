@@ -12,6 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { debounce } from 'lodash';
 import { Unplug } from 'lucide-react-native'; // 1. Using a reliable "offline" icon
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
+import BannerAdComponent from '@/components/BannerAdComponent';
+import { getSmartFeed } from '@/utils/feedLogic';
 
 const CATEGORIES = [
   "All", "Hairdresser", "Plumber", "Fashion Designer", "Chef", 
@@ -38,7 +40,8 @@ export default function ServicesScreen() {
       if (showLoading) setLoading(true);
       let query = supabase
         .from('services')
-        .select(`*, profiles:profiles!fk_service_owner ( avatar_url )`);
+        .select(`*, profiles:profiles!fk_service_owner ( avatar_url, 
+      is_verified )`);
 
       // Filter by Category
       if (selectedCat !== "All") {
@@ -53,7 +56,8 @@ export default function ServicesScreen() {
       const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
-      setServices(data || []);
+      const smartData = getSmartFeed(data || [], 2); 
+      setServices(smartData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -82,12 +86,15 @@ export default function ServicesScreen() {
   );
 
  // 2. REALTIME: Listens for changes while the user is actively on this screen
+// --- REALTIME LISTENER ---
 useEffect(() => {
   if (!isConnected) return;
 
-  // Create the channel and chain the .on BEFORE the .subscribe
+  // 👇 Appending a unique timestamp makes this mount instance distinct
+  const uniqueChannelName = `services-updates-${Date.now()}`;
+
   const channel = supabase
-    .channel('services-updates')
+    .channel(uniqueChannelName)
     .on(
       'postgres_changes',
       { 
@@ -95,22 +102,32 @@ useEffect(() => {
         schema: 'public', 
         table: 'services' 
       },
-      (payload) => {
+      async (payload) => {
         const newService = payload.new;
-        // Logic: Only add to UI if it matches the current category filter
+
         if (selectedCat === "All" || newService.category === selectedCat) {
-          setServices((current) => [newService, ...current]);
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('avatar_url, is_verified')
+            .eq('id', newService.user_id) 
+            .single();
+
+          const completeServiceRow = {
+            ...newService,
+            profiles: profileData || { avatar_url: null, is_verified: false }
+          };
+
+          setServices((current) => {
+            const updatedRawList = [completeServiceRow, ...current];
+            return getSmartFeed(updatedRawList, 2);
+          });
         }
       }
     )
-    .subscribe((status) => {
-      if (status !== 'SUBSCRIBED') {
-        console.warn("Realtime subscription status:", status);
-      }
-    });
+    .subscribe();
 
   return () => {
-    // Clean up the specific channel
+    // This will cleanly unbind the specific unique channel in the background
     supabase.removeChannel(channel);
   };
 }, [selectedCat, isConnected]);
@@ -144,51 +161,59 @@ useEffect(() => {
 
 
   const renderItem = ({ item }: { item: any }) => {
+    
     const serviceImage = (item.images && item.images.length > 0)
       ? `${SERVICE_BUCKET_URL}/${item.images[0]}`
       : (item.profiles?.avatar_url || 'https://via.placeholder.com/150?text=No+Image');
 
-    return (
-      <TouchableOpacity 
-        activeOpacity={0.9}
-        onPress={() => router.push(`/services/${item.id}`)}
-        className="bg-white rounded-[24px] mb-4 p-4 flex-row items-center shadow-sm border border-gray-100"
-      >
-        <View className="w-20 h-20 bg-gray-100 rounded-2xl overflow-hidden">
-          <Image
-            source={{ uri: serviceImage }}
-            style={{ width: '100%', height: '100%' }}
-            contentFit="cover"
-            transition={300}
-          />
-        </View>
+   return (
+    <TouchableOpacity 
+      activeOpacity={0.9}
+      onPress={() => router.push(`/services/${item.id}`)}
+      // Matching your 48% grid width and styling exactly
+      className="bg-card rounded-[24px] mb-4 w-[48%] overflow-hidden shadow-sm border border-card-border"
+    >
+      {/* Image Container */}
+      <View className="w-full h-36 bg-gray-200">
+        <Image
+          source={{ uri: serviceImage }}
+          style={{ width: '100%', height: '100%' }} 
+          contentFit="cover"
+          transition={300}
+          cachePolicy="disk"
+        />
+        
+        {/* Verification Badge */}
+                {item.profiles?.is_verified && (
+                  <View className="absolute top-2 right-2 bg-primary-surface/90 px-2 py-1 rounded-full border border-primary/10 flex-row items-center">
+                    <Ionicons name="checkmark-circle" size={10} color="#005d14" />
+                    <Text className="ml-1 text-primary text-[8px] font-black uppercase">Verified</Text>
+                  </View>
+                )}
+              </View>
 
-        <View className="flex-1 ml-4">
-          <View className="flex-row justify-between items-start">
-            <Text className="text-gray-900 font-bold text-base flex-1" numberOfLines={1}>
-              {item.business_name}
-            </Text>
-            <View className="bg-primary px-2 py-0.5 rounded-md ml-2">
-               <Text className="text-[8px] font-bold text-white uppercase">{item.category}</Text>
-            </View>
-          </View>
-
-          <Text className="text-gray-500 text-xs mt-1" numberOfLines={2}>
-            {item.description}
+      {/* Content Area */}
+      <View className="p-3">
+        <Text className="text-app-text font-black text-[13px] leading-4" numberOfLines={1}>
+          {item.business_name}
+        </Text>
+        
+        <View className="flex-row items-center mt-1">
+          <Ionicons name="location" size={10} color="#ef4444" />
+          <Text className="text-app-text-muted text-[10px] ml-1" numberOfLines={1}>
+            {item.location_address || 'Abeokuta'}
           </Text>
-          
-          <View className="flex-row items-center mt-3">
-            <Ionicons name="location" size={12} color="#ff0000" />
-            <Text className="text-gray-400 text-[10px] ml-1 flex-1" numberOfLines={1}>
-              {item.location_address || 'Area not specified'}
-            </Text>
-          </View>
         </View>
 
-        <Ionicons name="chevron-forward" size={20} color="#CCC" />
-      </TouchableOpacity>
-    );
-  };
+        <View className="mt-3">
+          <Text className="text-primary font-black text-sm">
+            {item.category}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
 
   return (
     <SafeAreaView className="flex-1 bg-app-bg">
@@ -197,7 +222,7 @@ useEffect(() => {
         {/* Header */}
         <View className="px-6 py-4 flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
+            <TouchableOpacity onPress={() => router.back()} className="mr-4">
               <Ionicons name="arrow-back" size={26} color="black" />
             </TouchableOpacity>
             <Text className="text-lg font-bold text-gray-800">Services</Text>
@@ -210,10 +235,11 @@ useEffect(() => {
             <Ionicons name="add" size={18} color="#ffffff" />
           </TouchableOpacity>
         </View>
+        
 
         {/* --- ACTUAL SEARCH BAR --- */}
-        <View className="px-6 mb-6">
-          <View className="w-full h-14 bg-neutral-100 rounded-2xl flex-row items-center px-4 border border-card-border">
+        <View className="px-6 mb-2">
+          <View className="w-full h-14 bg-gray-200 rounded-2xl flex-row items-center px-4 border border-card-border">
             <Ionicons name="search-outline" size={20} color="#666" />
             <TextInput
               placeholder="Search for a service..."
@@ -230,6 +256,7 @@ useEffect(() => {
             )}
           </View>
         </View>
+        <BannerAdComponent containerClass="mb-2 bg-gray-50" />
         
         {/* Categories */}
         <View className="px-6 mb-8 flex-row items-center">
@@ -260,20 +287,27 @@ useEffect(() => {
           <ActivityIndicator size="large" color="#16a34a" className="mt-20" />
         ) : (
           <FlatList
-            data={services}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.id.toString()}
-            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#16a34a" />
-            }
-            ListEmptyComponent={
-              <View className="mt-20 items-center">
-                <Ionicons name="construct-outline" size={48} color="#ccc" />
-                <Text className="text-gray-400 font-medium mt-2">No service providers found</Text>
-              </View>
-            }
-          />
+  data={services}
+  renderItem={renderItem}
+  keyExtractor={(item) => item.id.toString()}
+  
+  // --- GRID CONFIGURATION ---
+  numColumns={2} 
+  columnWrapperStyle={{ justifyContent: 'space-between' }}
+  
+  // Reduced horizontal padding slightly to give the grid more breathing room
+  contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}
+  
+  refreshControl={
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#16a34a" />
+  }
+  ListEmptyComponent={
+    <View className="mt-20 items-center">
+      <Ionicons name="construct-outline" size={48} color="#ccc" />
+      <Text className="text-gray-400 font-medium mt-2">No service providers found</Text>
+    </View>
+  }
+/>
         )}
       
     </SafeAreaView>

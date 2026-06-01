@@ -11,6 +11,151 @@ import Toast from 'react-native-toast-message';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useListingsStore } from '@/stores/useListingsStore';
 
+// --- CLEAN NATIONWIDE SHORT-DATASET ---
+// --- CLEAN NATIONWIDE SHORT-DATASET ---
+// Grouped by State, keeping display labels short for Listing Cards
+const shortLocationsData: { [key: string]: string[] } = {
+  "Ogun (Abeokuta & environments)": [
+    "Abiola Way", "Accord", "Adatan", "Adigbe", "Agboba", "Agbede", "Ake", "Akinolugbade", 
+    "Alabata", "Asero", "Brewery", "Camp", "Elite", "Elega", "Eleweran", "Harmony", 
+    "Ibara", "Idi-Aba", "Ijemo", "Imo", "Isale-Igbein", "Isolu", "Ita-Eko", "Ita-Oshin", 
+    "Itoku", "Itoko", "Itori", "Iyana-Mortuary", "Iyana-Oloke", "Kofesu", "Kotopo", "Kuto", 
+    "Lafenwa", "Lantoro", "Leme", "Obada", "Obantoko", "Odo-Eran", "Ojere", "Olomoore", 
+    "Omida", "Onikolobo", "Osiele", "Panseke", "Quarry", "Sapon", "Sokori", "Tarmac", "Totoro", "Sagamu"
+  ],
+  "Ijebu": [ 
+    "Ijebu-Ode", "Ijebu-Igbo", "Ago-Iwoye", "Iperu-Remo", "Isara-Remo"
+  ],
+  "Yewa": [
+    "Ilaro", "sayedero", "Oja Odan", "Idiroko", "Igbesa", "Yewa"
+  ],
+  "Ogun (Industrial & Lagos Borders)": [
+    "Ogijo", "Ota", "Sango", "Joju", "Agbara", "Mowe", "Ibafo", "Berger"
+  ],
+  "Lagos": [
+    "Ikeja", "Lekki Phase 1", "Yaba", "Surulere", "V.I", "Ikoyi", 
+    "Ajah", "Gbagada", "Maryland", "Ojota", "Festac", "Ikorodu", "Egbeda", "Oshodi", "Lasu Area"
+  ],
+  "Oyo": [
+    "Ibadan", "Bodija", "Oluyole", "Challenge", "Akobo", "Samonda", "Ogbomoso", "Oyo Town", "Iwo Road"
+  ],
+  "Osun": [
+    "Ile-Ife", "Osogbo", "Ede", "Ilesa"
+  ],
+  "Kwara": [
+    "Ilorin", "Tanke", "Fate", "Gaa Odota", "Malete"
+  ],
+  "FCT (Abuja)": [
+    "Garki", "Wuse", "Maitama", "Asokoro", "Gwarinpa", "Apo", "Kubwa", "Lugbe", "Utako"
+  ],
+  "Edo": [
+    "Benin City", "Ekpoma"
+  ],
+  "Delta": [
+    "Asaba", "Warri", "Abraka"
+  ],
+  "Anambra": [
+    "Awka", "Onitsha", "Nnewi"
+  ],
+  "Enugu": [
+    "Enugu City", "Nsukka"
+  ],
+  "Rivers": [
+    "Port Harcourt (Uniport Area)", "Port Harcourt (GRA)", "Port Harcourt (Choba)"
+  ],
+  "Kaduna": [
+    "Kaduna North", "Kaduna South", "Zaria"
+  ],
+  "Kano": [
+    "Kano City", "Sabon Gari", "Nassarawa"
+  ],
+  "Abia": [
+    "Aba", "Umuahia", "Uturu"
+  ],
+  "Adamawa": [
+    "Yola", "Mubi", "Jimeta"
+  ],
+  "Akwa Ibom": [
+    "Uyo", "Eket", "Ikot Ekpene"
+  ],
+  "Bauchi": [
+    "Bauchi City", "Azare", "Misau"
+  ],
+  "Bayelsa": [
+    "Yenagoa", "Amassoma", "Ogbia"
+  ],
+  "Benue": [
+    "Makurdi", "Gboko", "Otukpo"
+  ],
+  "Borno": [
+    "Maiduguri", "Biu", "Bama"
+  ],
+  "Cross River": [
+    "Calabar", "Ogoja", "Ikom"
+  ],
+  "Ebonyi": [
+    "Abakaliki", "Afikpo"
+  ],
+  "Ekiti": [
+    "Ado-Ekiti", "Ikole-Ekiti", "Oye-Ekiti"
+  ],
+  "Gombe": [
+    "Gombe City", "Kaltungo", "Dukku"
+  ],
+  "Imo": [
+    "Owerri", "Orlu", "Okigwe"
+  ],
+  "Jigawa": [
+    "Dutse", "Hadejia", "Kazaure"
+  ],
+  "Kebbi": [
+    "Birnin Kebbi", "Argungu", "Yauri"
+  ],
+  "Kogi": [
+    "Lokoja", "Anyigba", "Okene"
+  ],
+  "Katsina": [
+    "Katsina City", "Daura", "Funtua"
+  ],
+  "Nasara": [
+    "Lafia", "Keffi", "Karu"
+  ],
+  "Niger": [
+    "Minna", "Suleja", "Bida", "Kontagora"
+  ],
+  "Ondo": [
+    "Akure", "Ondo Town", "Okitipupa", "Ikare-Akoko"
+  ],
+  "Plateau": [
+    "Jos", "Bukuru", "Pankshin"
+  ],
+  "Sokoto": [
+    "Sokoto City", "Wamako", "Tambuwal"
+  ],
+  "Taraba": [
+    "Jalingo", "Wukari", "Bali"
+  ],
+  "Yobe": [
+    "Damaturu", "Potiskum", "Gashua"
+  ],
+  "Zamfara": [
+    "Gusau", "Kaura Namoda", "Talata Mafara"
+  ]
+};
+
+// Clean generation helper logic
+const targetMarketAreas = Object.keys(shortLocationsData).reduce((acc: string[], state) => {
+  const formattedAreas = shortLocationsData[state].map(area => {
+    // Treat explicit sub-Ogun keys cleanly
+    if (state.startsWith("Ogun") || state === "Ijebu" || state === "Yewa") {
+      return area.includes("(") ? area : `${area} (Ogun)`;
+    }
+    return area.includes("(") ? area : `${area} (${state})`;
+  });
+  return [...acc, ...formattedAreas];
+}, []).sort();
+
+
 export default function CreateListing() {
   const router = useRouter();
   const { editId } = useLocalSearchParams();
@@ -24,6 +169,7 @@ export default function CreateListing() {
   const [isUrgent, setIsUrgent] = useState(false);
   const [images, setImages] = useState<string[]>([]);
   const [condition, setCondition] = useState("New");
+  const [locationSearch, setLocationSearch] = useState('');
 
   // --- UI/Data States ---
   const [categories, setCategories] = useState<any[]>([]);
@@ -94,7 +240,8 @@ export default function CreateListing() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
       aspect: [5, 6],
       quality: 0.9, 
     });
@@ -115,15 +262,15 @@ export default function CreateListing() {
   };
 
   const resetForm = () => {
-  setTitle('');
-  setPrice('');
-  setDescription('');
-  setLocation('');
-  setIsUrgent(false);
-  setImages([]);
-  setCondition("New");
-  setSelectedCategory(null);
-};
+    setTitle('');
+    setPrice('');
+    setDescription('');
+    setLocation('');
+    setIsUrgent(false);
+    setImages([]);
+    setCondition("New");
+    setSelectedCategory(null);
+  };
 
   const handlePostListing = async () => {
     if (!title || !price || images.length === 0) {
@@ -137,29 +284,26 @@ export default function CreateListing() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Please log in again.");
 
-      // --- FEATURE GATE CHECK ---
-    // 2. Fetch the user's profile to check for an avatar
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('avatar_url')
-      .eq('id', user.id)
-      .single();
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('avatar_url')
+        .eq('id', user.id)
+        .single();
 
-    if (profileError) throw new Error("Could not verify profile status.");
+      if (profileError) throw new Error("Could not verify profile status.");
 
-    // 3. Block if avatar is missing or is the default placeholder
-    if (!profile?.avatar_url || profile.avatar_url.includes('profile.jpg')) {
-      setUploading(false); // Stop the spinner
-      Alert.alert(
-        'Photo Required', 
-        'To post on the SCRITT marketplace, you must have a profile photo. This helps build trust between buyers and sellers.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Upload Now', onPress: () => router.push('/profile') }
-        ]
-      );
-      return;
-    }
+      if (!profile?.avatar_url || profile.avatar_url.includes('profile.jpg')) {
+        setUploading(false);
+        Alert.alert(
+          'Photo Required', 
+          'To post on the SCRITT marketplace, you must have a profile photo. This helps build trust between buyers and sellers.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Upload Now', onPress: () => router.push('/profile') }
+          ]
+        );
+        return;
+      }
 
       const uploadedUrls = await Promise.all(
         images.map(async (uri) => {
@@ -231,6 +375,11 @@ export default function CreateListing() {
       </View>
     );
   }
+
+  // --- FILTERS APPLIED SAFELY HERE ---
+  const filteredLocations = targetMarketAreas.filter(loc => 
+    loc.toLowerCase().includes(locationSearch.toLowerCase())
+  );
 
   return (
     <View className="flex-1 bg-white">
@@ -322,7 +471,10 @@ export default function CreateListing() {
                 <Text className="text-gray-500 font-semibold mb-2 ml-1">Location</Text>
                 <View className="bg-gray-50 rounded-2xl border border-gray-100">
                   <TouchableOpacity 
-                    onPress={() => setIsLocationOpen(!isLocationOpen)}
+                    onPress={() => {
+                      setIsLocationOpen(!isLocationOpen);
+                      setLocationSearch("");
+                    }}
                     className="p-4 flex-row justify-between items-center bg-white rounded-2xl"
                   >
                     <Text className={location ? "text-gray-800" : "text-gray-400"}>
@@ -330,19 +482,45 @@ export default function CreateListing() {
                     </Text>
                     <Ionicons name={isLocationOpen ? "chevron-up" : "chevron-down"} size={16} color="#9CA3AF" />
                   </TouchableOpacity>
+
                   {isLocationOpen && (
-                    <View className="border-t border-gray-100 max-h-40">
-                      <ScrollView nestedScrollEnabled={true}>
-                        {["Isolu", "Camp", "Accord", "Harmony", "Kofesu", "Osiele", "Agbede"].map((loc) => (
-                          <TouchableOpacity
-                            key={loc}
-                            onPress={() => { setLocation(loc); setIsLocationOpen(false); }}
-                            className={`p-4 border-b border-gray-50 ${location === loc ? 'bg-green-50' : ''}`}
-                          >
-                            <Text className={location === loc ? 'text-primary font-bold' : 'text-gray-600'}>{loc}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
+                    <View className="border-t border-gray-100">
+                      <View className="flex-row items-center px-4 bg-primary border-b border-gray-100">
+                        <Ionicons name="search" size={14} color="#ffffff" />
+                        <TextInput
+                          placeholder="Search state, city or campus area..."
+                          placeholderTextColor="#ffffff"
+                          className="flex-1 p-2 text-white h-15"
+                          value={locationSearch}
+                          onChangeText={setLocationSearch}
+                          autoFocus={true}
+                        />
+                      </View>
+
+                      <View className="max-h-60">
+                        <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                          {filteredLocations.map((loc) => (
+                            <TouchableOpacity
+                              key={loc}
+                              onPress={() => { 
+                                setLocation(loc); 
+                                setIsLocationOpen(false); 
+                              }}
+                              className={`p-4 border-b border-gray-50 ${location === loc ? 'bg-green-50' : ''}`}
+                            >
+                              <Text className={location === loc ? 'text-green-700 font-bold' : 'text-gray-600'}>
+                                {loc}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                          
+                          {filteredLocations.length === 0 && (
+                            <View className="p-4 items-center">
+                              <Text className="text-gray-400">Area not supported yet</Text>
+                            </View>
+                          )}
+                        </ScrollView>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -407,7 +585,7 @@ export default function CreateListing() {
             {/* Condition Selection */}
             <Text className="text-gray-500 font-semibold mb-2 mt-6 ml-1">Item Condition</Text>
             <View className="space-y-3 pb-10">
-              {["New", "Neatly Used", "Fairly Used", "Others"].map((c) => (
+              {["New", "Neatly Used", "Fairly Used"].map((c) => (
                 <TouchableOpacity key={c} onPress={() => setCondition(c)} className="flex-row items-center py-2">
                   <View className={`w-5 h-5 rounded-full border items-center justify-center mr-3 ${condition === c ? 'border-green-600' : 'border-gray-400'}`}>
                     {condition === c && <View className="w-3 h-3 rounded-full bg-green-600" />}

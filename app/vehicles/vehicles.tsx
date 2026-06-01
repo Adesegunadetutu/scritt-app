@@ -9,7 +9,7 @@ import {
   RefreshControl,
   TextInput
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import { supabase } from '@/lib/supabase';
@@ -18,63 +18,70 @@ import { debounce } from 'lodash';
 import { WifiOff } from 'lucide-react-native';
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
 import BannerAdComponent from '@/components/BannerAdComponent';
-// IMPORT FIXED: Assuming MarqueeAnnouncement is inside components folder
 import MarqueeAnnouncement from '@/components/MarqueeAnnouncement'; 
 import { getSmartFeed } from '@/utils/feedLogic';
 
-const CATEGORIES = ["All", "Single room", "A room self con", "room and parlor", "room & parlor self con", "two bedroom flat", "3 bedroom flat", "others"];
+// Vehicle Categories based on condition states expected by the check constraints
+const CATEGORIES = ["All", "Tokunbo", "Locally Used", "Brand New"];
 
-const BUCKET_URL = "https://xaevvkjdcmcioswzalyr.supabase.co/storage/v1/object/public/accommodation_listings/";
-
-export default function AccommodationsScreen() {
+export default function VehiclesScreen() {
   const router = useRouter();
   const { isConnected } = useNetworkObserver();
   const [selectedCat, setSelectedCat] = useState("All");
-  const [listings, setListings] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // FETCH LOGIC
-  const fetchAccommodations = async (showLoading = true, text = searchQuery) => {
+  // FETCH VEHICLES LOGIC
+  const fetchVehicles = async (showLoading = true, text = searchQuery) => {
     if (!isConnected) return;
     try {
       if (showLoading) setLoading(true);
       let query = supabase
-        .from('accommodations')
-        .select(` *, profiles:profiles!fk_accommodation_owner (is_verified) `)
+        .from('vehicles')
+        .select(`
+          *,
+          profiles:profiles!fk_vehicles_profile_id (
+            business_name,
+            full_name,
+            is_verified_dealer
+          )
+        `)
         .eq('is_available', true);
 
+      // Handle category filtering by mapping to database constraints
       if (selectedCat !== "All") {
-        query = query.eq('category', selectedCat);
+        const dbCategoryValue = selectedCat.toLowerCase().replace(' ', '_');
+        query = query.eq('condition', dbCategoryValue);
       }
 
       // SEARCH FILTER
       if (text) {
-        query = query.or(`title.ilike.%${text}%,location.ilike.%${text}%,description.ilike.%${text}%`);
+        query = query.or(`make.ilike.%${text}%,model.ilike.%${text}%,description.ilike.%${text}%`);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw error;
+      
+      // Balancing inventory view with smart feed logic
       const smartData = getSmartFeed(data || [], 3); 
-      setListings(smartData);
+      setVehicles(smartData);
     } catch (err) {
-      console.error("Fetch Error:", err);
+      console.error("Fetch Vehicles Error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // OPTIMIZATION FIXED: Safe debouncing using useRef to prevent multi-timer allocation
+  // Safe debouncing using useRef to match existing optimization parameters
   const debouncedSearchRef = useRef(
-    debounce((text: string, currentCat: string) => {
-      // Passes active context cleanly inside debounce cycle
-      fetchAccommodations(false, text);
+    debounce((text: string) => {
+      fetchVehicles(false, text);
     }, 400)
   );
 
-  // Clean up timer instances on unmount
   useEffect(() => {
     return () => {
       debouncedSearchRef.current.cancel();
@@ -83,33 +90,34 @@ export default function AccommodationsScreen() {
 
   const handleSearchChange = (text: string) => {
     setSearchQuery(text);
-    debouncedSearchRef.current(text, selectedCat);
+    debouncedSearchRef.current(text);
   };
 
-  // REFRESH ON FOCUS
+  // REFRESH ON SCREEN FOCUS
   useFocusEffect(
     useCallback(() => {
-      fetchAccommodations(false); 
+      fetchVehicles(false); 
     }, [selectedCat])
   );
 
-  // REALTIME SUBSCRIPTION
+  // REALTIME POSTGRES SUBSCRIPTION
   useEffect(() => {
     if (!isConnected) return;
 
-    const channelId = `acc-updates-${selectedCat}-${Date.now()}`;
+    const channelId = `veh-updates-${selectedCat}-${Date.now()}`;
     const channel = supabase.channel(channelId);
 
     channel
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'accommodations' },
+        { event: 'INSERT', schema: 'public', table: 'vehicles' },
         (payload) => {
-          const newListing = payload.new;
+          const newVehicle = payload.new;
+          const mappedCat = selectedCat.toLowerCase().replace(' ', '_');
           
-          if (newListing.is_available && (selectedCat === "All" || newListing.category === selectedCat)) {
-            setListings((current) => {
-              const updatedRawList = [newListing, ...current];
+          if (newVehicle.is_available && (selectedCat === "All" || newVehicle.condition === mappedCat)) {
+            setVehicles((current) => {
+              const updatedRawList = [newVehicle, ...current];
               return getSmartFeed(updatedRawList, 3);
             });
           }
@@ -124,10 +132,10 @@ export default function AccommodationsScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchAccommodations();
+    fetchVehicles();
   }, [selectedCat, isConnected, searchQuery]);
 
-  // OFFLINE RENDER
+  // OFFLINE RENDER SCREEN
   if (!isConnected) {
     return (
       <SafeAreaView className="flex-1 bg-white items-center justify-center px-8">
@@ -137,7 +145,7 @@ export default function AccommodationsScreen() {
         </View>
         <Text className="text-2xl font-black text-gray-900 text-center">Connection Lost</Text>
         <Text className="text-gray-500 text-center mt-3 leading-6">
-          We can't load the latest accommodations right now. Please check your internet and try again.
+          We can't load the marketplace listings right now. Please check your data connection and try again.
         </Text>
         <TouchableOpacity 
           onPress={() => router.back()}
@@ -150,19 +158,17 @@ export default function AccommodationsScreen() {
   }
 
   const renderItem = ({ item }: { item: any }) => {
-    const mainImage = item.images && item.images.length > 0 ? item.images[0] : null;
-    const cleanImageName = mainImage?.startsWith('/') ? mainImage.substring(1) : mainImage;
-    const imageUrl = mainImage 
-      ? `${BUCKET_URL}${cleanImageName}`
-      : 'https://via.placeholder.com/400x300?text=No+Image';
+    const mainImage = item.image_urls && item.image_urls.length > 0 ? item.image_urls[0] : null;
+    const imageUrl = mainImage || 'https://via.placeholder.com/400x300?text=No+Image';
+    const dealerName = item.profiles?.business_name || item.profiles?.full_name || "Dealer";
 
     return (
       <TouchableOpacity 
         activeOpacity={0.9}
-        onPress={() => router.push(`/accommodation/${item.id}`)}
+        onPress={() => router.push(`/vehicles/${item.id}`)}
         className="bg-card rounded-[24px] mb-4 w-[48%] overflow-hidden shadow-sm border border-card-border"
       >
-        <View className="w-full h-36 bg-gray-200">
+        <View className="w-full h-36 bg-gray-200 relative">
           <Image
             source={{ uri: imageUrl }}
             style={{ width: '100%', height: '100%' }} 
@@ -170,30 +176,45 @@ export default function AccommodationsScreen() {
             transition={300}
             cachePolicy="disk"
           />
-          {item.profiles?.is_verified && (
+          
+          {/* Transmission Badge */}
+          <View className="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded-md">
+            <Text className="text-white text-[9px] font-bold capitalize">{item.transmission}</Text>
+          </View>
+
+          {item.profiles?.is_verified_dealer && (
             <View className="absolute top-2 right-2 bg-primary-surface/90 px-2 py-1 rounded-full border border-primary/10 flex-row items-center">
               <Ionicons name="checkmark-circle" size={10} color="#005d14" />
-              <Text className="ml-1 text-primary text-[8px] font-black uppercase">Verified</Text>
+              <Text className="ml-1 text-primary text-[8px] font-black uppercase">Dealer</Text>
             </View>
           )}
         </View>
 
         <View className="p-3">
           <Text className="text-app-text font-black text-[13px] leading-4" numberOfLines={1}>
-            {item.title}
+            {item.make} {item.model}
           </Text>
+          
           <View className="flex-row items-center mt-1">
-            <Ionicons name="location" size={10} color="#ef4444" />
-            <Text className="text-app-text-muted text-[10px] ml-1" numberOfLines={1}>
-              {item.location || 'Location'}
+            <Text className="text-app-text-muted text-[10px] font-bold">
+              {item.year_of_manufacture} • {item.mileage_km ? `${item.mileage_km.toLocaleString()} km` : '0 km'}
             </Text>
           </View>
-          <View className="mt-3">
-            <Text className="text-primary font-black text-sm">
+
+          <View className="flex-row flex-wrap items-center gap-1 mt-2 h-4 overflow-hidden">
+            {item.is_first_body && <Text className="text-[9px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold">First Body</Text>}
+            {item.is_ac_chilling && <Text className="text-[9px] bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded font-bold">A/C Cold</Text>}
+          </View>
+
+          <View className="mt-2 pt-1 border-t border-gray-50 flex-row justify-between items-center">
+            <Text className="text-primary font-black text-sm" numberOfLines={1}>
               ₦{item.price?.toLocaleString()}
             </Text>
-            <Text className="text-app-text-muted text-[9px] font-bold">/ {item.rent_period}</Text>
           </View>
+          
+          <Text className="text-app-text-muted text-[9px] font-semibold mt-0.5 truncate" numberOfLines={1}>
+            By: {dealerName}
+          </Text>
         </View>
       </TouchableOpacity>
     );
@@ -209,23 +230,23 @@ export default function AccommodationsScreen() {
           <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
             <Ionicons name="arrow-back" size={26} color="black" />
           </TouchableOpacity>
-          <Text className="text-lg font-bold text-gray-800 ">Accommodations</Text>
+          <Text className="text-lg font-bold text-gray-800 ">Vehicles</Text>
         </View>
         
         <TouchableOpacity 
-          onPress={() => router.push('/add-accommodation')}
+          onPress={() => router.push('/vehicles/add-vehicle')}
           className="bg-primary p-2 rounded-full shadow-sm"
         >
           <Ionicons name="add" size={20} color="#ffffff" />
         </TouchableOpacity>
       </View>
 
-      {/* Search Bar */}
+      {/* Search Input Bar */}
       <View className="px-6 mb-2">
         <View className="w-full h-14 bg-gray-200 rounded-2xl flex-row items-center px-4 border border-card-border">
           <Ionicons name="search-outline" size={20} color="#005d14" />
           <TextInput
-            placeholder="Search area, house type..."
+            placeholder="Search brand, model variants..."
             placeholderTextColor="#9ca3af"
             value={searchQuery}
             onChangeText={handleSearchChange}
@@ -241,16 +262,17 @@ export default function AccommodationsScreen() {
         </View>
       </View>
 
-      {/* Reusable Announcement Disclaimer */}
+      {/* Anti-Fraud Notice Marquee */}
       <MarqueeAnnouncement 
-        text="Disclaimer: Inspect the property physically before paying any agent fees, caution fee, or rent."
+        text="Disclaimer: Verify documents, inspect engine status, test drive, and verify custom clearing state before closing deals."
         duration={15000}
       />
 
+      {/* Monetization Placeholder */}
       <BannerAdComponent containerClass="mb-2 bg-gray-50" />
         
-      {/* Filter Categories */}
-      <View className="px-6 mb-8 flex-row items-center">
+      {/* Category Tabs Selector */}
+      <View className="px-6 mb-4 flex-row items-center">
         <TouchableOpacity className="bg-gray-200 p-3 rounded-xl mr-4">
           <Ionicons name="options-outline" size={20} color="black" />
         </TouchableOpacity>
@@ -274,11 +296,67 @@ export default function AccommodationsScreen() {
         </ScrollView>
       </View>
 
+      {/* Premium "Become a Verified Dealer" CTA Card */}
+      <View 
+        //activeOpacity={0.95}
+        //onPress={() => router.push('/vehicles/verify-dealer')}
+        className="mx-6 mb-5 bg-white border border-[#005d14]/20 p-4 rounded-[22px] flex-row items-center justify-between"
+        style={{
+          elevation: 3,
+          shadowColor: '#005d14',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+        }}
+      >
+        <View className="flex-row items-center flex-1 pr-3">
+          <View className="bg-[#005d14] w-10 h-10 rounded-xl items-center justify-center mr-3 shadow-sm">
+            <MaterialCommunityIcons name="shield-check-outline" size={22} color="#ffffff" />
+          </View>
+          <View className="flex-1">
+            <Text className="text-black font-black text-[13px] tracking-tight mb-0.5">
+              Become a Verified Dealer
+            </Text>
+            <Text className="text-gray-500 font-semibold text-[10px] leading-3">
+              Gain exclusive visibility, trust badges, and unlock unlimited listings.
+            </Text>
+          </View>
+        </View>
+        
+        <View className="bg-gray-50 border border-gray-100 w-8 h-8 rounded-full items-center justify-center">
+          <Ionicons name="arrow-forward" size={16} color="#005d14" />
+        </View>
+      </View>
+
+      {/* Listing Grid */}
       {loading ? (
-        <ActivityIndicator size="large" color="#005d14" className="mt-20" />
+        <View className="flex-row flex-wrap justify-between px-5">
+          {[1, 2, 3, 4].map((item) => (
+            <View 
+              key={`skeleton-${item}`} 
+              className="bg-white rounded-[24px] mb-4 w-[48%] overflow-hidden border border-gray-100 p-3 h-[230px]"
+              style={{
+                elevation: 1,
+                shadowColor: '#AAB8C2',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.04,
+                shadowRadius: 4,
+              }}
+            >
+              {/* Media Block Skeleton */}
+              <View className="w-full h-32 bg-gray-100 rounded-[18px] mb-2.5 items-center justify-center opacity-60">
+                <Ionicons name="car-outline" size={28} color="#d1d5db" />
+              </View>
+              {/* Text Layout Lines */}
+              <View className="w-3/4 h-3 bg-gray-100 rounded-md mb-2 opacity-80" />
+              <View className="w-1/2 h-2.5 bg-gray-50 rounded-md mb-3 opacity-80" />
+              <View className="w-2/3 h-4 bg-gray-100/80 rounded-lg opacity-70" />
+            </View>
+          ))}
+        </View>
       ) : (
         <FlatList
-          data={listings}
+          data={vehicles}
           renderItem={renderItem}
           keyExtractor={(item) => item.id.toString()}
           numColumns={2}
@@ -290,8 +368,8 @@ export default function AccommodationsScreen() {
           }
           ListEmptyComponent={
             <View className="mt-20 items-center">
-              <Ionicons name="home-outline" size={48} color="#ccc" />
-              <Text className="text-gray-400 font-medium mt-2">No listings found</Text>
+              <Ionicons name="car-outline" size={48} color="#ccc" />
+              <Text className="text-gray-400 font-medium mt-2">No vehicles found matching criteria</Text>
             </View>
           }
         />

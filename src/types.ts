@@ -29,3 +29,12 @@ user_id: string;
 listing_id: string;
 created_at: string;
 };
+
+export type Vehicle = {
+  id: string;
+  make: string;
+  model: string;
+  image_urls: string[];
+  price: string | number;
+  location?: string | null;
+};

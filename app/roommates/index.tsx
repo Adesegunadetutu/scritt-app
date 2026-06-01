@@ -8,6 +8,8 @@ import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { WifiOff } from 'lucide-react-native'; // Standardized offline icon
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
+import BannerAdComponent from '@/components/BannerAdComponent';
+import { getSmartFeed } from '@/utils/feedLogic';
 
 export default function RoommateFeed() {
   const [requests, setRequests] = useState<any[]>([]);
@@ -17,30 +19,36 @@ export default function RoommateFeed() {
   const router = useRouter();
 
   const fetchRequests = async (showLoading = true) => {
-    if (!isConnected) return;
+  if (!isConnected) return;
+  
+  try {
+    if (showLoading) setLoading(true);
+    const { data, error } = await supabase
+      .from('roommate_requests')
+      .select(`
+        *,
+        profiles (
+          avatar_url,
+          full_name,
+          is_verified
+        )
+      `)
+      .order('created_at', { ascending: false });
     
-    try {
-      if (showLoading) setLoading(true);
-      const { data, error } = await supabase
-        .from('roommate_requests')
-        .select(`
-          *,
-          profiles (
-            avatar_url,
-            full_name
-          )
-        `)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      setRequests(data || []);
-    } catch (err) {
-      console.error("Error fetching listings:", err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    if (error) throw error;
+
+    // 🔥 Apply the smart feed utility
+    // We use 1 for roommates so every top result is a different person
+    const smartData = getSmartFeed(data || [], 1); 
+    setRequests(smartData);
+
+  } catch (err) {
+    console.error("Error fetching listings:", err);
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+};
 
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -58,37 +66,37 @@ export default function RoommateFeed() {
 useEffect(() => {
   if (!isConnected) return;
 
-  const channel = supabase
-    .channel('roommate-feed-updates')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'roommate_requests' },
-      async (payload) => {
-        const newListing = payload.new;
+  // Add a unique suffix to prevent channel name collisions
+  const channelId = `roommate-feed-${Date.now()}`;
+  const channel = supabase.channel(channelId);
 
-        // Since the payload only contains the raw 'roommate_requests' row,
-        // we fetch the profile data (avatar/name) to match our UI needs.
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('avatar_url, full_name')
-          .eq('id', newListing.user_id)
-          .single();
+  channel
+  .on(
+    'postgres_changes',
+    { event: 'INSERT', schema: 'public', table: 'roommate_requests' },
+    async (payload) => {
+      const newListing = payload.new;
+      
+      // Fetch profile data so the new item has its name/avatar/verified status
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('avatar_url, full_name, is_verified')
+        .eq('id', newListing.user_id)
+        .single();
 
-        const listingWithProfile = {
-          ...newListing,
-          profiles: profileData
-        };
+      const listingWithProfile = { ...newListing, profiles: profileData };
 
-        setRequests((current) => [listingWithProfile, ...current]);
-      }
-    )
-    .subscribe();
-
+      setRequests((current) => {
+        // 🔥 Add new and re-run smart logic to maintain diversity
+        const updatedRawList = [listingWithProfile, ...current];
+        return getSmartFeed(updatedRawList, 1);
+      });
+    }
+  )
   return () => {
     supabase.removeChannel(channel);
   };
-}, [isConnected]);
-
+}, [isConnected]); // Keep dependency array clean
   // --- OFFLINE BLOCKER ---
   if (!isConnected) {
     return (
@@ -114,6 +122,7 @@ useEffect(() => {
   const renderItem = ({ item }: { item: any }) => { 
     const isOwner = item.request_type === 'has_room';
     const avatarUrl = item.profiles?.avatar_url;
+    const fullName = item.profiles?.full_name || "Anonymous";
 
     return (
       <TouchableOpacity 
@@ -136,12 +145,16 @@ useEffect(() => {
 
         <View className="p-3">
           <Text className="font-black text-[11px] text-app-text leading-4" numberOfLines={1}>
-            {item.title}
-          </Text>
+          {fullName}
+        </Text>
           
-          <Text className="text-[9px] text-primary font-medium mt-0.5 mb-3">
-            {isOwner ? "Has a room" : "Needs a room"}
-          </Text>
+         <Text 
+  className={`text-[12px] font-bold mt-1 mb-3 ${
+    isOwner ? "text-primary" : "text-secondary"
+  }`}
+>
+  {isOwner ? "Has a room" : "Needs a room"}
+</Text>
 
           <View className="space-y-1">
             <View className="flex-row justify-between items-center">
@@ -175,7 +188,7 @@ useEffect(() => {
       <Stack.Screen options={{ headerShown: false }} />
       
       {/* Header Area */}
-      <View className="flex-row justify-between items-center mb-6">
+      <View className="flex-row justify-between items-center mb-4">
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="black" />
         </TouchableOpacity>
@@ -188,10 +201,10 @@ useEffect(() => {
         </TouchableOpacity>
       </View>
 
-      <Text className="text-gray-500 text-sm font-medium mb-4">Find Your Next Roommate</Text>
+      
 
       {/* Search Bar */}
-      <View className="bg-gray-200/60 flex-row items-center px-4 py-3 rounded-2xl mb-8">
+      <View className="bg-gray-100 flex-row items-center px-4 py-1 rounded-2xl mb-2">
         <Ionicons name="search" size={18} color="#666" />
         <TextInput 
           placeholder="Search" 
@@ -203,11 +216,14 @@ useEffect(() => {
         </TouchableOpacity>
       </View>
 
+      
+      <BannerAdComponent containerClass="mb-2 bg-gray-50" />
+      
       {/* Section Title */}
-      <View className="flex-row justify-between items-center mb-4">
-        <Text className="font-black text-gray-900 text-base">Latest Roommates Listings</Text>
+      <View className="flex-row justify-between items-center mb-5">
+        <Text className="font-medium text-gray-900 text-xl">Latest Roommates Listings</Text>
         <TouchableOpacity>
-          <Ionicons name="arrow-forward" size={20} color="black" />
+          <Ionicons name="people-outline" size={20} color="#16a34a" />
         </TouchableOpacity>
       </View>
 

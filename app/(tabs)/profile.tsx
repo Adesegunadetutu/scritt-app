@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import { useRouter, Stack, useFocusEffect } from "expo-router";
 import * as Location from 'expo-location'; 
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Import your custom component
 import { GradientAvatar } from "@/components/GradientAvatar";
@@ -43,12 +44,14 @@ const MenuLinkSkeleton = () => (
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { isConnected } = useNetworkObserver();
   const [uploading, setUploading] = useState(false);
   const [address, setAddress] = useState("Locating...");
   const [loadingLoc, setLoadingLoc] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [hasVehicles, setHasVehicles] = useState(false); // 👈 Add this line
   const [userData, setUserData] = useState<{ full_name: string; is_verified?: boolean; location: string; id: string } | null>(null);
   
   const isVerified = userData?.is_verified || false;
@@ -56,33 +59,52 @@ export default function ProfileScreen() {
   // --- CORE LOGIC: DATA FETCHING ---
   const fetchUserProfile = async () => {
     if (!isConnected) {
-      setLoading(false); // Stop loading to show cached/empty state if offline
+      setLoading(false);
       return;
     }
     try {
       if (!userData) {
         setLoading(true);
       }
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) return;
+      
+      // OPTIMIZATION: getSession is faster for initial UI render than getUser
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        setLoading(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('profiles')
         .select('full_name, avatar_url, is_verified, location') 
-        .eq('id', user.id)
+        .eq('id', session.user.id)
         .single();
 
       if (error) throw error;
 
       if (data) {
         setUserData({
-          id: user.id,
+          id: session.user.id,
           full_name: data.full_name || "---",
           location: data.location || "Set Location",
           is_verified: data.is_verified 
         });
         if (data.location) setAddress(data.location);
         if (data.avatar_url) setProfileImage(data.avatar_url);
+
+        // 👇 ADD THIS VEHICLE CHECK BLOCK HERE 👇
+        const { data: vehicleCheck, error: vehicleErr } = await supabase
+          .from('vehicles')
+          .select('id')
+          .eq('user_id', session.user.id)
+          .limit(1);
+
+        if (!vehicleErr && vehicleCheck && vehicleCheck.length > 0) {
+          setHasVehicles(true);
+        } else {
+          setHasVehicles(false);
+        }
+        // 👆 END OF VEHICLE CHECK BLOCK 👆
       }
     } catch (error: any) {
       console.error("Profile Fetch Error:", error.message);
@@ -91,62 +113,67 @@ export default function ProfileScreen() {
     }
   };
   
-  const fetchCurrentLocation = async () => {
-    if (!isConnected) {
-      Alert.alert("Offline", "Connect to the internet to update your location.");
-      return;
-    }
-    setLoadingLoc(true);
+  const fetchCurrentLocation = async (isManualRefresh = false) => {
+    if (!isConnected) return;
+    if (isManualRefresh) setLoadingLoc(true);
+
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setAddress("Abeokuta, NG");
-        setLoadingLoc(false);
-        return;
+      if (status !== 'granted') return;
+
+      // OPTIMIZATION: Get last known position first (nearly instant)
+      let location = await Location.getLastKnownPositionAsync({});
+      
+      // Only request a fresh high-accuracy lock if last known is unavailable
+      if (!location) {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
       }
-  
-      let location = await Location.getCurrentPositionAsync({});
+
       let reverseGeocode = await Location.reverseGeocodeAsync({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       });
-  
+
       if (reverseGeocode.length > 0) {
         const loc = reverseGeocode[0];
-        const displayLoc = loc.district || loc.name || loc.city || "Unknown";
-        const fullLocString = `${displayLoc}, ${loc.region || ''}`;
+        const displayLoc = `${loc.district || loc.city || "Unknown"}, ${loc.region || ''}`;
         
-        setAddress(fullLocString);
+        setAddress(displayLoc);
 
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase
-            .from('profiles')
-            .update({ 
-              location: fullLocString,
-              lat: location.coords.latitude,
-              lng: location.coords.longitude 
-            })
-            .eq('id', user.id);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          // Background update
+          supabase.from('profiles').update({ 
+            location: displayLoc,
+            lat: location.coords.latitude,
+            lng: location.coords.longitude 
+          }).eq('id', session.user.id).then();
         }
       }
     } catch (error) {
-      console.log("Location Error:", error);
-      setAddress("Set Location");
+      console.log("Silent Location Error:", error);
     } finally {
-      setLoadingLoc(false);
+      setLoadingLoc(false); 
     }
   };
 
-  // FIXED: Consolidated useFocusEffect to prevent "Navigation Context" errors
   useFocusEffect(
     useCallback(() => {
-      fetchUserProfile();
-     if (isConnected) fetchCurrentLocation();
+      fetchUserProfile(); 
+      
+      // OPTIMIZATION: Delay location fetch so it doesn't block the profile data fetch
+      const locTimer = setTimeout(() => {
+        if (isConnected) {
+          fetchCurrentLocation(); 
+        }
+      }, 1000);
+
+      return () => clearTimeout(locTimer);
     }, [isConnected])
   );
   
-  // --- CORE LOGIC: IMAGE HANDLING ---
   const pickImage = async () => {
     if (!isConnected) {
       Alert.alert("Offline", "Please connect to the internet to change your profile picture.");
@@ -211,29 +238,25 @@ export default function ProfileScreen() {
       Alert.alert("Offline", "Cannot request verification while offline.");
       return;
     }
-  const phoneNumber = "2348142371976"; // Added 234 prefix
-  const message = `Hello Scritt Admin, my name is ${userData?.full_name}. I would like to request a verification badge. User ID: ${userData?.id}`;
-  
-  const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
-  const browserUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+    const phoneNumber = "2348142371976";
+    const message = `Hello Scritt Admin, my name is ${userData?.full_name}. I would like to request a verification badge. User ID: ${userData?.id}`;
+    
+    const whatsappUrl = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+    const browserUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
 
-  try {
-    const supported = await Linking.canOpenURL(whatsappUrl);
-    if (supported) {
-      await Linking.openURL(whatsappUrl);
-    } else {
-      // If the app can't "see" WhatsApp, wa.me is a universal link
-      // Android will catch this and ask to open in WhatsApp or Browser
-      await Linking.openURL(browserUrl);
+    try {
+      const supported = await Linking.canOpenURL(whatsappUrl);
+      if (supported) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        await Linking.openURL(browserUrl);
+      }
+    } catch (error) {
+      const emailUrl = `mailto:adesegunadetutu20@gmail.com?subject=Verification&body=${encodeURIComponent(message)}`;
+      Linking.openURL(emailUrl);
     }
-  } catch (error) {
-    // Ultimate fallback to Email
-    const emailUrl = `mailto:adesegunadetutu20@gmail.com?subject=Verification&body=${encodeURIComponent(message)}`;
-    Linking.openURL(emailUrl);
   };
-  // --- OFFLINE BLOCKER ---
-  // We only block if we have NO profile data and NO connection.
-  // This ensures users can still see their settings/links if they've loaded before.
+
   if (!isConnected && !userData) {
     return (
       <View className="flex-1 bg-white items-center justify-center px-8">
@@ -254,13 +277,11 @@ export default function ProfileScreen() {
       </View>
     );
   }
-};
 
   return (
     <View className="flex-1 bg-app-bg">
       <Stack.Screen options={{ headerShown: false }} />
       
-      {/* Header Section */}
       <View 
         style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
         className="bg-white border-b border-gray-50"
@@ -283,7 +304,8 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ 
+          paddingBottom: Math.max(insets.bottom, 20) + 80}}>
         {loading ? (
           <View className="px-6">
             <ProfileSkeleton />
@@ -293,7 +315,6 @@ export default function ProfileScreen() {
           </View>
         ) : (
           <>
-            {/* Profile Info Section */}
             <View className="items-center mt-8 mb-6">
               <TouchableOpacity 
                 onPress={pickImage} 
@@ -323,7 +344,7 @@ export default function ProfileScreen() {
               <Text className="mt-4 text-xl font-bold text-gray-900">{userData?.full_name || "No Internet"}</Text>
               
               <View className="flex-row items-center mt-2">
-                <TouchableOpacity onPress={fetchCurrentLocation} className="flex-row items-center">
+                <TouchableOpacity onPress={() => fetchCurrentLocation(true)} className="flex-row items-center">
                   <Ionicons name="location-sharp" size={18} color="#ff0000" />
                   {loadingLoc ? (
                     <ActivityIndicator size="small" color="#9ca3af" className="ml-1" />
@@ -334,7 +355,6 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* Verification Button */}
             <View className="items-center w-full px-6">
               {!isVerified && (
                 <TouchableOpacity onPress={handleRequestVerification} className="mt-2 mb-4 px-5 py-2 bg-primary rounded-full">
@@ -343,16 +363,18 @@ export default function ProfileScreen() {
               )}
             </View>
 
-            {/* Manage Posts Section */}
             <View className="px-6 mb-4 mt-4">
                <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">My Business & Posts</Text>
                <MenuLink icon="cart-outline" label="My Market Listings" onPress={() => router.push('/profile/my-listings')} />
                <MenuLink icon="business-outline" label="My Accommodations" onPress={() => router.push('/profile/my-accommodations')} />
                <MenuLink icon="construct-outline" label="My Services" onPress={() => router.push('/profile/my-services')} />
                <MenuLink icon="people-outline" label="Roommate Requests" onPress={() => router.push('/profile/my-roommates')} />
+                {/* 👇 ADD THIS CONDITIONAL RENDER RIGHT UNDER ROOMMATE REQUESTS 👇 */}
+                {hasVehicles && (
+                  <MenuLink icon="car-sport-outline" label="My Vehicle Listings" onPress={() => router.push('/profile/my-vehicles')} />
+                )}
             </View>
 
-            {/* Account Settings Section */}
             <View className="px-6">
               <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Account Settings</Text>
               <MenuLink icon="person-outline" label="Edit Profile" onPress={() => router.push('/profile/edit')} />

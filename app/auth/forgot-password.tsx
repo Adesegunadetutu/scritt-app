@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, Alert, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -18,7 +19,7 @@ export default function ForgotPassword() {
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       // Ensure this URL is whitelisted in your Supabase Dashboard
-      redirectTo: 'com.adesegunadetutu.scritt://update-password',
+      redirectTo: 'com.adesegunadetutu.scritt://auth/update-password',
     });
 
     if (error) {
@@ -47,7 +48,13 @@ export default function ForgotPassword() {
         <Text className="text-xl font-bold text-gray-900 mt-6">Reset Password</Text>
       </View>
 
-      <ScrollView className="flex-1 px-8 -mt-12">
+      <KeyboardAwareScrollView 
+        className="flex-1 px-8 -mt-12"
+        showsVerticalScrollIndicator={false}
+        // Offsets to ensure the bottom button/link stays visible
+        bottomOffset={Platform.OS === 'ios' ? 40 : 20}
+        keyboardShouldPersistTaps="handled"
+      >
         <View className="bg-[#EFA33E] rounded-[30px] p-6 shadow-xl">
           <Text className="text-center text-gray-800 text-[13px] mb-6 px-2 leading-5">
             Enter your registered email below to receive password reset instructions.
@@ -84,7 +91,7 @@ export default function ForgotPassword() {
             </Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

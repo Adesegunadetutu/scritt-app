@@ -108,7 +108,7 @@ export default function PublicProfile() {
 
         <ScrollView showsVerticalScrollIndicator={false}>
           {/* Profile Card */}
-          <View className="items-center mt-8 px-4">
+          <View className="items-center mt-2 px-4">
             
             {/* Avatar with Gradient Stroke */}
             <View style={{ width: avatarSize, height: avatarSize }}>
@@ -151,8 +151,8 @@ export default function PublicProfile() {
             <Text className="text-2xl font-black mt-4 text-gray-900 tracking-tight">{profile?.full_name}</Text>
             
             <View className="flex-row items-center mt-1">
-              <MapPin size={14} color="#6b7280" />
-              <Text className="text-gray-500 ml-1 font-bold text-xs uppercase tracking-tighter">Funaab, Abeokuta</Text>
+              <MapPin size={14} color="#ef4444" />
+              <Text className="text-gray-500 ml-1 font-bold text-xs uppercase tracking-tighter">{profile?.location || "Abeokuta"}</Text>
             </View>
 
             {currentUserId !== id && (
@@ -168,7 +168,7 @@ export default function PublicProfile() {
           </View>
 
           {/* Stats Row */}
-          <View className="flex-row justify-around mt-10 border-y border-gray-50 py-6 bg-gray-50/30">
+          <View className="flex-row justify-around mt-4 border-y border-gray-50 py-6 bg-gray-50/30">
             <View className="items-center">
               <Text className="text-xl font-black text-gray-900">{listings.length}</Text>
               <Text className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Items</Text>

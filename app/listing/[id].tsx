@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { 
   View, Text, Image, ScrollView, TouchableOpacity, TextInput,
   ActivityIndicator, StatusBar, Platform, Dimensions, Alert,
-  Linking, FlatList
+  Linking, FlatList,
+  KeyboardAvoidingView, Modal
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { ChevronLeft, CloudOff, Send, Settings } from 'lucide-react-native';
+import { ChevronLeft, CloudOff, Send, Settings, X} from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { calculateDistance } from '@/utils/geo'; 
 import { Ionicons } from "@expo/vector-icons";
@@ -44,15 +45,18 @@ export default function ListingDetails() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // Table Mapping Logic
-  const rawTable = (table as string) || 'listings';
-  const tableMap: { [key: string]: string } = {
-    'accommodation': 'accommodations',
-    'listing': 'listings',
-    'service': 'services'
-  };
-  const targetTable = tableMap[rawTable] || rawTable;
+  // Table Mapping Logic - Wrapped in useMemo for stability
+  const targetTable = useMemo(() => {
+    const rawTable = (table as string) || 'listings';
+    const tableMap: { [key: string]: string } = {
+      'accommodation': 'accommodations',
+      'listing': 'listings',
+      'service': 'services'
+    };
+    return tableMap[rawTable] || rawTable;
+  }, [table]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -60,15 +64,23 @@ export default function ListingDetails() {
       try {
         setLoading(true);
         
-        // 1. Get Auth User
-        const { data: { user: authUser } } = await supabase.auth.getUser();
+        // 1. OPTIMIZATION: Fetch Auth User and Listing in Parallel
+        const [authResponse, listingResponse] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase
+            .from(targetTable)
+            .select(`*, profiles:user_id (full_name, avatar_url, lat, lng, is_verified)`) // Using standard relation first
+            .eq('id', id)
+            .single()
+        ]);
+
+        const authUser = authResponse.data.user;
         setUser(authUser); 
         const viewerId = authUser?.id || null;
         setCurrentUserId(viewerId);
 
-        // 2. Determine owner field and the correct named relationship
+        // Determine relation mapping (keeping your existing logic)
         const ownerField = targetTable === 'services' ? 'provider_id' : 'user_id';
-        
         const relationMap: { [key: string]: string } = {
           'accommodations': 'fk_accommodation_owner',
           'listings': 'fk_listing_owner',
@@ -76,49 +88,46 @@ export default function ListingDetails() {
         };
         const relationName = relationMap[targetTable] || ownerField;
 
-        // 3. Fetch Listing + Owner Profile using explicit relationship
-        const { data, error } = await supabase
-          .from(targetTable)
-          .select(`*, profiles:${relationName} (full_name, avatar_url, lat, lng, is_verified)`)
-          .eq('id', id)
-          .single();
-
-        if (error) throw error;
+        const data = listingResponse.data;
+        if (listingResponse.error) throw listingResponse.error;
 
         if (data) {
-  // 1. Tell TypeScript to treat 'data' as a flexible object to bypass the ParserError
-  const d = data as any; 
+          const d = data as any; 
+          const normalizedData = {
+            ...d,
+            user_id: d[ownerField],
+            profiles: d.profiles || d[relationName], 
+            slider_images: d.images && d.images.length > 0 ? d.images : [d.thumbnail]
+          };
+          setListing(normalizedData);
 
-  const normalizedData = {
-    ...d,
-    // 2. Use 'd' for everything to avoid property access errors
-    user_id: d[ownerField],
-    profiles: d.profiles || d[relationName], 
-    slider_images: d.images && d.images.length > 0 ? d.images : [d.thumbnail]
-  };
-  
-  setListing(normalizedData);
+          // 2. OPTIMIZATION: Fetch Distance Data and Other Listings in Parallel
+          const [viewerProfResponse, otherDataResponse] = await Promise.all([
+            viewerId && normalizedData.profiles?.lat 
+              ? supabase.from('profiles').select('lat, lng').eq('id', viewerId).single() 
+              : Promise.resolve({ data: null }),
+            supabase
+              .from(targetTable)
+              .select(`*, profiles:${relationName} (is_verified)`)
+              .eq(ownerField, normalizedData.user_id)
+              .neq('id', id)
+              .limit(6)
+          ]);
 
-          // 4. Distance Calculation
+          // Distance Calculation logic
           if (viewerId === normalizedData.user_id) {
             setDistanceText("Your Listing");
-          } else if (viewerId && normalizedData.profiles?.lat) {
-            const { data: viewerProf } = await supabase.from('profiles').select('lat, lng').eq('id', viewerId).single();
-            if (viewerProf?.lat) {
-              const dist = calculateDistance(viewerProf.lat, viewerProf.lng, normalizedData.profiles.lat, normalizedData.profiles.lng);
-              setDistanceText(dist);
-            }
+          } else if (viewerProfResponse.data?.lat) {
+            const dist = calculateDistance(
+                viewerProfResponse.data.lat, 
+                viewerProfResponse.data.lng, 
+                normalizedData.profiles.lat, 
+                normalizedData.profiles.lng
+            );
+            setDistanceText(dist);
           }
 
-          // 5. Fetch Other Items from Seller using explicit relationship
-          const { data: otherData } = await supabase
-            .from(targetTable)
-            .select(`*, profiles:${relationName} (is_verified)`)
-            .eq(ownerField, normalizedData.user_id)
-            .neq('id', id)
-            .limit(6);
-          
-          setOtherListings(otherData || []);
+          setOtherListings(otherDataResponse.data || []);
         }
       } catch (err) {
         console.error("Fetch error:", err);
@@ -179,21 +188,25 @@ export default function ListingDetails() {
     }
   };
 
-  const renderImageItem = ({ item }: { item: string }) => (
-  <View style={{ width: screenWidth - 32, marginRight: 16 }}>
-    <Image
-      source={{ uri: getSupabaseImage(item, targetTable) }}
-      // Use aspectRatio instead of just height for a more natural feel
-      style={{ 
-        width: '100%', 
-        aspectRatio: 1, // A square ratio is often best for mixed uploads
-        maxHeight: 400  // Prevents portrait photos from becoming too tall
-      }}
-      className="rounded-[32px] bg-gray-100"
-      resizeMode="cover" // Cover is still best for UI, but the ratio helps it look better
-    />
-  </View>
-);
+  // OPTIMIZATION: Memoize renderImageItem to prevent re-creation on every scroll/render
+  const renderImageItem = useCallback(({ item }: { item: string }) => (
+    <TouchableOpacity 
+      activeOpacity={0.9} 
+      onPress={() => setIsModalVisible(true)} // <-- Open modal on click
+      style={{ width: screenWidth - 32, marginRight: 16 }}
+    >
+      <Image
+        source={{ uri: getSupabaseImage(item, targetTable) }}
+        style={{ 
+          width: '100%', 
+          aspectRatio: 1, 
+          maxHeight: 400 
+        }}
+        className="rounded-[32px] bg-gray-100"
+        resizeMode="cover"
+      />
+    </TouchableOpacity>
+  ), [targetTable]);
 
   return (
     <SafeAreaView className="flex-1 bg-app-bg">
@@ -226,23 +239,22 @@ export default function ListingDetails() {
               {/* IMAGE SLIDER */}
               <View>
                 <FlatList
-              data={listing?.slider_images || []}
-              renderItem={renderImageItem}
-              horizontal
-              // Use screenWidth - 16 to account for the padding/margin layout
-              snapToInterval={screenWidth - 16} 
-              snapToAlignment="start" 
-              decelerationRate="fast"
-              showsHorizontalScrollIndicator={false}
-              scrollEventThrottle={16} // Improves scroll tracking accuracy
-              onScroll={(e) => {
-                const offset = e.nativeEvent.contentOffset.x;
-                // Calculate index based on the actual interval used
-                const index = Math.round(offset / (screenWidth - 16));
-                setActiveImageIndex(index);
-              }}
-              keyExtractor={(_, index) => index.toString()}
-            />
+                  data={listing?.slider_images || []}
+                  renderItem={renderImageItem}
+                  horizontal
+                  snapToInterval={screenWidth - 16} 
+                  snapToAlignment="start" 
+                  decelerationRate="fast"
+                  showsHorizontalScrollIndicator={false}
+                  scrollEventThrottle={16}
+                  onScroll={(e) => {
+                    const offset = e.nativeEvent.contentOffset.x;
+                    const index = Math.round(offset / (screenWidth - 16));
+                    if (index !== activeImageIndex) setActiveImageIndex(index);
+                  }}
+                  keyExtractor={(_, index) => index.toString()}
+                  initialNumToRender={1} // Optimization: Don't render all images at once
+                />
                 
                 {listing?.slider_images?.length > 1 && (
                   <View className="flex-row justify-center mt-4">
@@ -289,50 +301,74 @@ export default function ListingDetails() {
                   </View>
                   <View className="ml-3 flex-1">
                     <Text className="text-amber-800 font-bold text-xs">Safe Shopping Tip</Text>
-                    <Text className="text-amber-700 text-[10px] mt-0.5">Meet in public & verify items before payment.</Text>
+                    <Text className="text-amber-700 text-[10px] mt-0.5">This Listing Is not Verified. Meet in public & verify items before payment.</Text>
                   </View>
                 </View>
               )}
 
+              {/* VERIFICATION DISCLAIMER FOR OWNERS */}
+              {isOwner && !listing.profiles?.is_verified && (
+                <TouchableOpacity 
+                  onPress={() => {
+                    const phoneNumber = '2348142371976';
+                    const messageStr = `Hello Admin, I want to verify my account. My User ID is: ${user?.id}`;
+                    const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(messageStr)}`;
+                    Linking.canOpenURL(url).then(supported => {
+                      if (supported) { Linking.openURL(url); } 
+                      else { Linking.openURL(`https://wa.me/${phoneNumber}?text=${encodeURIComponent(messageStr)}`); }
+                    });
+                  }}
+                  activeOpacity={0.8}
+                  className="bg-red-50 mt-6 p-4 rounded-[24px] border border-red-100 flex-row items-center shadow-sm"
+                >
+                  <View className="bg-red-100 p-2 rounded-full">
+                    <Ionicons name="shield-outline" size={20} color="#dc2626" />
+                  </View>
+                  <View className="ml-3 flex-1">
+                    <Text className="text-red-800 font-bold text-sm">You are not verified</Text>
+                    <Text className="text-red-700 text-xs mt-0.5">Get verified to build trust and increase your sales.</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#dc2626" />
+                </TouchableOpacity>
+              )}
+
               {/* ACTION AREA */}
               {!isOwner ? (
-                <View className="bg-white border border-gray-200 rounded-[24px] flex-row items-center mt-8 px-4 py-1.5 shadow-sm">
-                  <TextInput 
-                    placeholder={`Reply to ${sellerName.split(' ')[0]}...`} 
-                    placeholderTextColor="#9CA3AF"
-                    className="flex-1 text-gray-800 h-12 font-medium"
-                    value={message}
-                    onChangeText={setMessage}
-                    editable={!sending}
-                  />
-                  <TouchableOpacity 
-                    onPress={handleSendMessage} 
-                    disabled={sending || !message.trim()}
-                    className={`p-2 rounded-full ${message.trim() ? 'bg-primary' : 'bg-gray-100'}`}
-                  >
-                    <Send size={18} color={message.trim() ? "white" : "#9ca3af"} />
-                  </TouchableOpacity>
-                </View>
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                  keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+                >
+                  <View className="bg-white border-t rounded-full mt-6 border-gray-100 px-4 py-3 flex-row items-center shadow-lg">
+                    <TextInput 
+                      placeholder={`Reply to ${sellerName.split(' ')[0]}...`} 
+                      placeholderTextColor="#9CA3AF"
+                      className="flex-1 bg-gray-50 px-4 py-2.5 rounded-full text-gray-800 font-medium"
+                      value={message}
+                      onChangeText={setMessage}
+                    />
+                    <TouchableOpacity onPress={handleSendMessage} disabled={sending} className="ml-3 bg-primary p-2.5 rounded-full">
+                      {sending ? <ActivityIndicator size="small" color="white" /> : <Send size={20} color="white" />}
+                    </TouchableOpacity>
+                  </View>
+                </KeyboardAvoidingView>
               ) : (
-               <TouchableOpacity 
-  onPress={() => router.push(`/profile/my-listings`)}
-  activeOpacity={0.7}
-  // Added 'self-center' to stop it from stretching, and 'px-10' for a balanced pill shape
-  className="bg-primary self-center flex-row items-center px-10 py-3.5 rounded-full mt-8 shadow-md"
-  style={{
-    // Subtle elevation for Android/iOS shadow depth
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  }}
->
-  <Settings size={18} color="white" strokeWidth={2.5} />
-  <Text className="text-white font-extrabold ml-3 text-[15px] tracking-wide">
-    Manage Listing
-  </Text>
-</TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => router.push(`/profile/my-listings`)}
+                  activeOpacity={0.7}
+                  className="bg-primary self-center flex-row items-center px-10 py-3.5 rounded-full mt-8 shadow-md"
+                  style={{
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 8,
+                    elevation: 5,
+                  }}
+                >
+                  <Settings size={18} color="white" strokeWidth={2.5} />
+                  <Text className="text-white font-extrabold ml-3 text-[15px] tracking-wide">
+                    Manage Listing
+                  </Text>
+                </TouchableOpacity>
               )}
 
               {/* MORE FROM SELLER */}
@@ -361,6 +397,51 @@ export default function ListingDetails() {
             </View>
           )}
         </ScrollView>
+
+        <Modal
+          visible={isModalVisible}
+          transparent={false}
+          animationType="fade"
+          onRequestClose={() => setIsModalVisible(false)}
+        >
+          <SafeAreaView className="flex-1 bg-black justify-between">
+            <StatusBar barStyle="light-content" backgroundColor="black" />
+            
+            {/* Close Button Header */}
+            <View className="px-4 py-3 flex-row justify-start">
+              <TouchableOpacity 
+                onPress={() => setIsModalVisible(false)} 
+                className="p-2 rounded-full bg-white/10"
+              >
+                <X size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Main Center Image */}
+            <View className="flex-1 justify-center items-center px-2">
+              {listing?.slider_images && (
+                <Image
+                  source={{ 
+                    uri: getSupabaseImage(listing.slider_images[activeImageIndex], targetTable) 
+                  }}
+                  style={{ width: screenWidth, aspectRatio: 1 }}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+
+            {/* Bottom Details Section */}
+            <View className="p-6 bg-black/60 border-t border-white/10 backdrop-blur-md pb-10">
+              <Text className="text-white text-lg font-black tracking-tight" numberOfLines={2}>
+                {listing?.title}
+              </Text>
+              <Text className="text-green-400 text-2xl font-black mt-2">
+                ₦{listing?.price?.toLocaleString()}
+              </Text>
+            </View>
+          </SafeAreaView>
+        </Modal>
+
     </SafeAreaView>
   );
 }

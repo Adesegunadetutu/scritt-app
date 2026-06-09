@@ -59,12 +59,13 @@
     },
     "plugins": [
       "expo-router",
+      "expo-secure-store",
       "./withAndroidReplaceColor",
       [
         "expo-build-properties",
         {
           "android": {
-            "ndkVersion": "26.1.10909125",
+            "ndkVersion": "27.1.12297006",
             "compileSdkVersion": 35,
             "targetSdkVersion": 35,
             "buildToolsVersion": "35.0.0"

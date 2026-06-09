@@ -264,68 +264,89 @@ export default function HomeScreen() {
     });
   };
 
-  useEffect(() => {
+ useEffect(() => {
+  // 1. Initial Data Fetching
   fetchListings();
   fetchUserData();
   fetchTopSellers();
 
-  let listingsSub: any;
-  let userSub: any; // Combine Profile and Notifications here
+  // 2. Declare mutable channel references inside hook scope for teardown access
+  let listingsSub: any = null;
+  let userSub: any = null;
+  let isMounted = true;
 
   const setupSubscriptions = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
 
-    // 1. Public Listings (Broadcast to everyone)
-    listingsSub = supabase
-      .channel('public-listings')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'listings' },
-        () => fetchListings()
-      )
-      .subscribe();
+      // Exit early if the component unmounted while waiting for the auth promise to resolve
+      if (!isMounted) return;
 
-    if (user) {
-      // 2. Private User Data (Combined into ONE channel)
-      userSub = supabase
-        .channel(`user-updates-${user.id}`)
-        // Add Notification Listener
+      // 3. Public Listings Channel (Broadcast to everyone)
+      listingsSub = supabase
+        .channel('public-listings')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${user.id}`,
-          },
-          () => fetchUserData()
+          { event: 'INSERT', schema: 'public', table: 'listings' },
+          () => fetchListings()
         )
-        // Add Profile Listener (Registering BOTH before calling .subscribe())
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'profiles',
-            filter: `id=eq.${user.id}`,
-          },
-          (payload) => {
-            if (payload.new.avatar_url) setUserAvatar(payload.new.avatar_url);
-            if (payload.new.last_name) setFirstName(payload.new.last_name.split(' ')[0]);
+        .subscribe((status) => {
+          if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
+            console.warn("Public listings realtime channel dropped connection.");
           }
-        )
-        .subscribe();
+        });
+
+      // 4. Private User Data Channel (Combined listeners registered BEFORE subscribing)
+      if (user) {
+        userSub = supabase
+          .channel(`user-updates-${user.id}`)
+          // Add Notification Listener
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${user.id}`,
+            },
+            () => fetchUserData()
+          )
+          // Add Profile Listener
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'profiles',
+              filter: `id=eq.${user.id}`,
+            },
+            (payload) => {
+              if (payload.new.avatar_url) setUserAvatar(payload.new.avatar_url);
+              if (payload.new.last_name) setFirstName(payload.new.last_name.split(' ')[0]);
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
+              console.warn("User personal data realtime channel dropped connection.");
+            }
+          });
+      }
+    } catch (error) {
+      console.error("Error establishing Supabase subscription channels:", error);
     }
   };
 
+  // Execute async setup
   setupSubscriptions();
 
+  // 5. Cleanup block runs on component unmount
   return () => {
+    isMounted = false;
     if (listingsSub) supabase.removeChannel(listingsSub);
     if (userSub) supabase.removeChannel(userSub);
   };
-}, []); // ✅ REMOVE fetchListingsno
+}, []);
 
   useEffect(() => {
     if (!selectedCategorySlug || selectedCategorySlug.toLowerCase() === "all") {

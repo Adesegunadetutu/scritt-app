@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { WifiOff } from 'lucide-react-native'; // Standardized offline icon
+import { WifiOff } from 'lucide-react-native'; 
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
 import BannerAdComponent from '@/components/BannerAdComponent';
 import { getSmartFeed } from '@/utils/feedLogic';

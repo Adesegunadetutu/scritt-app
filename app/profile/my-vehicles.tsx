@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -8,7 +8,8 @@ import {
   Platform,
   Animated,
   Easing,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from "@expo/vector-icons";
@@ -53,17 +54,28 @@ const ShimmerEffect = ({ width, height, className }: { width: any, height: numbe
 };
 
 const ListingRowSkeleton = () => (
-  <View className="flex-row bg-app-bg rounded-xl p-4 mb-3 items-center border border-gray-50">
-    <ShimmerEffect width={90} height={90} className="rounded-xl" />
-    <View className="flex-1 ml-4 h-[90px] justify-between">
-      <View>
-        <ShimmerEffect width="75%" height={16} className="rounded" />
-        <ShimmerEffect width="100%" height={12} className="rounded mt-2" />
+  <View className="bg-white p-4 mb-3 shadow-sm rounded-2xl border border-gray-50">
+    {/* Top Section Info Row */}
+    <View className="flex-row items-center pb-3.5 border-b border-gray-50/80">
+      <ShimmerEffect width={90} height={90} className="rounded-xl" />
+      <View className="flex-1 ml-4 h-[90px] justify-between">
+        <View>
+          <View className="flex-row justify-between items-center">
+            <ShimmerEffect width="70%" height={14} className="rounded" />
+            <ShimmerEffect width={12} height={12} className="rounded-full" />
+          </View>
+          <ShimmerEffect width="45%" height={10} className="rounded mt-2" />
+        </View>
+        <View className="flex-row justify-between items-center">
+          <ShimmerEffect width={65} height={14} className="rounded" />
+          <ShimmerEffect width={75} height={14} className="rounded" />
+        </View>
       </View>
-      <View className="flex-row justify-between items-center">
-        <ShimmerEffect width={80} height={12} className="rounded" />
-        <ShimmerEffect width={60} height={28} className="rounded" />
-      </View>
+    </View>
+    {/* Bottom Actions Shelf */}
+    <View className="flex-row items-center justify-between mt-3">
+      <ShimmerEffect width="72%" height={40} className="rounded-xl" />
+      <ShimmerEffect width="22%" height={40} className="rounded-xl" />
     </View>
   </View>
 );
@@ -73,6 +85,7 @@ export default function MyVehiclesScreen() {
   const router = useRouter();
   const [myItems, setMyItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMyVehicles();
@@ -117,8 +130,6 @@ export default function MyVehiclesScreen() {
                 .eq('id', id);
 
               if (error) throw error;
-
-              // Update local state to remove the item immediately
               setMyItems((prev) => prev.filter((item) => item.id !== id));
             } catch (error) {
               console.error('Error deleting vehicle:', error);
@@ -130,45 +141,86 @@ export default function MyVehiclesScreen() {
     );
   };
 
-  const renderItem = ({ item }: { item: any }) => {
-    // Parse image_urls string arrays safely
-    const displayImage = Array.isArray(item.image_urls) && item.image_urls.length > 0 
+  const toggleSoldStatus = async (id: string, currentStatus: string) => {
+    const isSold = currentStatus?.toLowerCase() === 'rented' || currentStatus?.toLowerCase() === 'sold';
+    const newStatus = isSold ? 'active' : 'sold';
+    
+    try {
+      setUpdatingId(id);
+      const { error } = await supabase
+        .from('vehicles')
+        .update({ status: newStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setMyItems((prev) => 
+        prev.map((item) => item.id === id ? { ...item, status: newStatus } : item)
+      );
+    } catch (error) {
+      console.error('Error toggling vehicle status:', error);
+      Alert.alert("Error", "Could not update vehicle availability status.");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // --- MEMOIZED RENDER ITEM COMPONENT ---
+  const renderItem = useCallback(({ item }: { item: any }) => {
+    const rawImage = Array.isArray(item.image_urls) && item.image_urls.length > 0 
       ? item.image_urls[0] 
+      : (typeof item.image_urls === 'string' ? item.image_urls : null);
+
+    const displayImage = rawImage
+      ? (rawImage.startsWith('http://') || rawImage.startsWith('https://')
+          ? rawImage
+          : `https://xaevvkjdcmcioswzalyr.supabase.co/storage/v1/object/public/vehicle_listings/${rawImage}`)
       : null;
 
-    // Render cleanly formatted badge names for conditions matching your slugs
     const formatCondition = (slug: string) => {
       if (slug === 'locally_used') return 'Locally Used';
       if (slug === 'brand_new') return 'Brand New';
       return 'Tokunbo';
     };
 
+    const isSold = item.status?.toLowerCase() === 'sold' || item.status?.toLowerCase() === 'rented';
+    const isCurrentlyUpdating = updatingId === item.id;
+
     return (
-      <View className="bg-white flex-row p-4 mb-3 items-center shadow-sm rounded-2xl border border-gray-50">
+      <View className="bg-white p-4 mb-3 shadow-sm rounded-2xl border border-gray-50">
         
-        {/* Navigation Area: User clicks this to edit/view details */}
+        {/* Top Info Section */}
         <TouchableOpacity 
           activeOpacity={0.7}
           onPress={() => router.push({ pathname: '/vehicles/add', params: { editId: item.id } })}
-          className="flex-row flex-1 items-center"
+          className="flex-row items-center pb-3.5 border-b border-gray-50/80"
         >
-          <Image
-            source={displayImage ? { uri: displayImage } : require("../../assets/profile.png")}
-            style={{ width: 90, height: 90, borderRadius: 12 }}
-            contentFit="cover"
-            transition={200}
-          />
+          <View style={{ width: 90, height: 90, position: 'relative' }}>
+            <Image
+              source={displayImage ? { uri: displayImage } : require("../../assets/profile.png")}
+              style={{ width: 90, height: 90, borderRadius: 12 }}
+              contentFit="cover"
+              transition={200}
+            />
+            {isSold && (
+              <View className="absolute bottom-0 left-0 right-0 bg-orange-50 py-0.5 rounded-b-[12px] items-center border-t border-white/20">
+                <Text className="text-orange-600 font-black text-[8px] uppercase tracking-wider">
+                  Sold
+                </Text>
+              </View>
+            )}
+          </View>
 
           <View className="flex-1 ml-4 h-[90px] justify-between">
             <View>
               <View className="flex-row justify-between items-center">
-                <Text className="text-gray-900 font-bold text-[14px] flex-1" numberOfLines={1}>
+                <Text className="text-gray-900 font-extrabold text-[14px] flex-1" numberOfLines={1}>
                   {item.year_of_manufacture} {item.make} {item.model}
                 </Text>
                 <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
               </View>
-              <Text className="text-gray-500 text-[11px] mt-1" numberOfLines={1}>
-                📍 {item.location || "Location not specified"} • {item.body_color || 'No Color Specified'}
+              <Text className="text-gray-500 text-[11px] mt-0.5" numberOfLines={1}>
+                📍 {item.location || "Location not specified"} • {item.body_color || 'No Color'}
               </Text>
             </View>
 
@@ -185,17 +237,47 @@ export default function MyVehiclesScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Delete Action Button */}
-        <TouchableOpacity 
-          onPress={() => handleDelete(item.id)}
-          className="ml-2 p-2 bg-red-50 rounded-full"
-          activeOpacity={0.6}
-        >
-          <Ionicons name="trash-outline" size={20} color="#ef4444" />
-        </TouchableOpacity>
+        {/* Bottom Inline Actions Shelf */}
+        <View className="flex-row items-center justify-between mt-3">
+          <TouchableOpacity
+            disabled={isCurrentlyUpdating}
+            onPress={() => toggleSoldStatus(item.id, item.status)}
+            activeOpacity={0.7}
+            className={`flex-1 mr-3 h-10 rounded-xl flex-row items-center justify-center border ${
+              isSold 
+                ? 'bg-orange-50/60 border-orange-100' 
+                : 'bg-gray-50 border-gray-100'
+            }`}
+          >
+            {isCurrentlyUpdating ? (
+              <ActivityIndicator size="small" color={isSold ? '#ea580c' : '#4b5563'} />
+            ) : (
+              <>
+                <Ionicons 
+                  name={isSold ? "refresh-circle-outline" : "checkmark-circle-outline"} 
+                  size={16} 
+                  color={isSold ? '#ea580c' : '#4b5563'} 
+                  style={{ marginRight: 5 }}
+                />
+                <Text className={`font-bold text-xs ${isSold ? 'text-orange-700' : 'text-gray-600'}`}>
+                  {isSold ? 'Mark Available' : 'Mark as Sold'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={() => handleDelete(item.id)}
+            className="w-10 h-10 bg-red-50 rounded-xl items-center justify-center border border-red-100"
+            activeOpacity={0.6}
+          >
+            <Ionicons name="trash-outline" size={17} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
+
       </View>
     );
-  };
+  }, [updatingId]);
 
   return (
     <View className="flex-1 bg-white">
@@ -203,8 +285,10 @@ export default function MyVehiclesScreen() {
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
-      <View style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
-            className="bg-white border-b border-gray-50 px-4 py-4 flex-row items-center justify-between">
+      <View 
+        style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
+        className="bg-white border-b border-gray-50 px-4 py-4 flex-row items-center justify-between"
+      >
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.back()} 
@@ -216,9 +300,10 @@ export default function MyVehiclesScreen() {
         </View>
 
         <TouchableOpacity 
-            onPress={() => router.push('/vehicles/add')}
-            className="bg-primary w-9 h-9 rounded-full items-center justify-center shadow-md">
-            <Ionicons name="add" size={24} color="white" />
+          onPress={() => router.push('/vehicles/add')}
+          className="bg-primary w-9 h-9 rounded-full items-center justify-center shadow-md"
+        >
+          <Ionicons name="add" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
@@ -229,6 +314,7 @@ export default function MyVehiclesScreen() {
             data={Array(5).fill({})}
             renderItem={() => <ListingRowSkeleton />}
             keyExtractor={(_, index) => `skel-${index}`}
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingTop: 16 }}
           />
         ) : (
@@ -236,6 +322,9 @@ export default function MyVehiclesScreen() {
             data={myItems}
             keyExtractor={(item) => item.id.toString()}
             renderItem={renderItem}
+            initialNumToRender={6}
+            maxToRenderPerBatch={8}
+            windowSize={5}
             contentContainerStyle={{ paddingTop: 16, paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={

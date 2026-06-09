@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { 
   View, Text, Image, ScrollView, TouchableOpacity, SafeAreaView, 
-  ActivityIndicator, Alert, Dimensions, Platform, StatusBar 
+  ActivityIndicator, Alert, Dimensions, Platform, StatusBar,
+  Modal, TextInput, KeyboardAvoidingView
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { ChevronLeft, MapPin, MessageCircle, Share2 } from 'lucide-react-native';
+import { ChevronLeft, MapPin, MessageCircle, Share2, Flag, X } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Circle, ClipPath, Image as SvgImage } from 'react-native-svg';
 
@@ -18,8 +19,22 @@ export default function PublicProfile() {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // --- Reporting System States ---
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingSubmit, setReportingSubmit] = useState(false);
+
   const primaryColor = "#166534"; 
   const secondaryColor = "#f97316"; 
+
+  const reportCategories = [
+    { label: "Fraud / Scam Operations", value: "scam" },
+    { label: "Harassment / Abusive Interaction", value: "offensive" },
+    { label: "Selling Counterfeits / Fake Items", value: "wrong_info" },
+    { label: "Unresponsive / Inactive Vendor", value: "unavailable" },
+    { label: "Spam / Multi-posting Abuse", value: "spam" },
+  ];
 
   useEffect(() => {
     async function fetchUserData() {
@@ -69,6 +84,47 @@ export default function PublicProfile() {
     });
   };
 
+  const handleReportSubmit = async () => {
+    if (!currentUserId) {
+      Alert.alert("Authentication Required", "Please log in to flag this user.");
+      return;
+    }
+    if (!selectedReason) {
+      Alert.alert("Reason Required", "Please select a reason category before submitting.");
+      return;
+    }
+
+    setReportingSubmit(true);
+    try {
+      // Direct user report submission mapped to standard profile tracking tables
+      const { error } = await supabase
+        .from('user_reports') 
+        .insert({
+          reporter_id: currentUserId,
+          reported_user_id: id,
+          reason_category: selectedReason,
+          additional_details: reportDetails.trim() || null
+        });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Report Received", 
+        "Thank you. This vendor profile has been logged for systemic structural moderation verification.",
+        [{ text: "OK", onPress: () => {
+           setIsReportModalVisible(false);
+           setSelectedReason(null);
+           setReportDetails("");
+        }}]
+      );
+    } catch (err: any) {
+      console.error("Profile Reporting Error:", err.message);
+      Alert.alert("Submission Failed", "We couldn't submit your flag at this time.");
+    } finally {
+      setReportingSubmit(false);
+    }
+  };
+
   if (loading) return (
     <View className="flex-1 justify-center items-center bg-white">
       <ActivityIndicator size="large" color={primaryColor} />
@@ -80,7 +136,6 @@ export default function PublicProfile() {
   const strokeWidth = 4;
   const center = avatarSize / 2;
   const radius = (avatarSize - strokeWidth) / 2;
-  // The image should be smaller than the stroke circle to sit inside it
   const imageSize = avatarSize - (strokeWidth * 2); 
 
   return (
@@ -100,10 +155,20 @@ export default function PublicProfile() {
           <TouchableOpacity onPress={() => router.back()} className="p-2 bg-gray-50 rounded-full">
             <ChevronLeft size={22} color="black" />
           </TouchableOpacity>
+          
           <Text className="text-lg font-black text-gray-800 tracking-tight">Seller Profile</Text>
-          <TouchableOpacity onPress={() => router.push('/messages')} className="p-2 bg-gray-50 rounded-full active:bg-gray-100">
-            <MessageCircle size={20} color="black" />
-          </TouchableOpacity>
+          
+          {/* Dynamically configured flag action layout element */}
+          {!loading && currentUserId !== id ? (
+            <TouchableOpacity 
+              onPress={() => setIsReportModalVisible(true)} 
+              className="p-2 bg-gray-50 rounded-full active:bg-gray-100"
+            >
+              <Flag size={20} color="#dc2626" />
+            </TouchableOpacity>
+          ) : (
+            <View className="w-9 h-9" /> // Structural placeholder spacing element 
+          )}
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -120,12 +185,10 @@ export default function PublicProfile() {
                   </SvgLinearGradient>
                   
                   <ClipPath id="clip">
-                    {/* The clip radius must match the image area */}
                     <Circle cx={center} cy={center} r={imageSize / 2} />
                   </ClipPath>
                 </Defs>
                 
-                {/* Background/Stroke Circle */}
                 <Circle
                   cx={center}
                   cy={center}
@@ -135,7 +198,6 @@ export default function PublicProfile() {
                   fill="white"
                 />
                 
-                {/* Image correctly offset to center inside the stroke */}
                 <SvgImage
                   href={{ uri: profile?.avatar_url || 'https://via.placeholder.com/100' }}
                   x={strokeWidth}
@@ -158,7 +220,6 @@ export default function PublicProfile() {
             {currentUserId !== id && (
               <TouchableOpacity 
                 className="mt-6 px-10 py-4 bg-primary rounded-full flex-row items-center shadow-md active:scale-95"
-                
                 onPress={handleMessageSeller}
               >
                 <MessageCircle size={18} color="white" />
@@ -209,6 +270,93 @@ export default function PublicProfile() {
           </View>
         </ScrollView>
       </View>
+
+      {/* VENDOR INTERGRITY AUDITING SHEET OVERLAY */}
+      <Modal
+        visible={isReportModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          className="flex-1 justify-end bg-black/40"
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setIsReportModalVisible(false)} 
+            className="flex-1" 
+          />
+          
+          <View className="bg-white rounded-t-[32px] px-6 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-black text-gray-900 tracking-tight">Report Account Profile</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">Help protect our student community ecosystem</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsReportModalVisible(false)} 
+                className="bg-gray-100 p-2 rounded-full"
+              >
+                <X size={18} color="#4b5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+              {reportCategories.map((cat) => {
+                const isSelected = selectedReason === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    activeOpacity={0.75}
+                    onPress={() => setSelectedReason(cat.value)}
+                    className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                      isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                    }`}
+                  >
+                    <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                      {cat.label}
+                    </Text>
+                    <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                      isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Explanations (Optional)</Text>
+              <TextInput
+                placeholder="Provide details about payment tracking scams, fake profiles or abusive platform behavior..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                textAlignVertical="top"
+                className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+              />
+
+              <TouchableOpacity
+                onPress={handleReportSubmit}
+                disabled={reportingSubmit}
+                activeOpacity={0.8}
+                className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+              >
+                {reportingSubmit ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Flag size={16} color="white" style={{ marginRight: 6 }} />
+                    <Text className="text-white font-extrabold text-sm tracking-wide">Submit Profile Infraction</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }

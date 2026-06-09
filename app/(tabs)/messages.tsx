@@ -8,7 +8,6 @@ import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { MessageSquareOff, Trash2 } from 'lucide-react-native'; 
 import { useNetworkObserver } from '@/hooks/useNetworkObserver';
-// 1. Added Swipeable imports
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 
 export default function Messages() {
@@ -44,10 +43,9 @@ export default function Messages() {
           receiver:profiles!fk_receiver(full_name, avatar_url)
         `)
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        // 👇 CRITICAL: Filter out messages you've hidden
-        // 'not.cs' means "Not Contains" the following array
         .filter('hidden_from', 'not.cs', `{${user.id}}`)
         .order('inserted_at', { ascending: false });
+        
       if (error) {
         console.error('Supabase Query Error:', error.message);
         return;
@@ -69,66 +67,58 @@ export default function Messages() {
     }
   }, [isConnected]);
 
-  // 2. Added Delete Function
   const deleteConversation = async (conversationId: string) => {
-  Alert.alert(
-    "Remove Conversation",
-    "This will remove the chat from your list. The other person will still see the messages.",
-    [
-      { text: "Cancel", style: "cancel" },
-      { 
-        text: "Remove", 
-        onPress: async () => {
-          // 1. Instant UI update
-          setConversations(prev => prev.filter(c => c.conversation_id !== conversationId));
+    Alert.alert(
+      "Remove Conversation",
+      "This will remove the chat from your list. The other person will still see the messages.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          onPress: async () => {
+            setConversations(prev => prev.filter(c => c.conversation_id !== conversationId));
 
-          try {
-            // 2. Get the current user
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return;
 
-            // 3. Update ALL messages in this conversation
-            // We use array_append in SQL logic via Supabase to ensure we don't overwrite other users who hid it
-            const { error } = await supabase
-              .rpc('hide_conversation_for_user', { 
-                p_conversation_id: conversationId, 
-                p_user_id: user.id 
-              });
+              const { error } = await supabase
+                .rpc('hide_conversation_for_user', { 
+                  p_conversation_id: conversationId, 
+                  p_user_id: user.id 
+                });
 
-            // IF YOU DON'T WANT TO USE RPC, USE THIS INSTEAD:
-            if (error) {
-               // Fallback if RPC isn't set up: 
-               // Fetch messages, update arrays, and save.
-               const { data: msgs } = await supabase
-                .from('messages')
-                .select('id, hidden_from')
-                .eq('conversation_id', conversationId);
-              
-               if (msgs) {
-                 const promises = msgs.map(m => {
-                   const updatedHidden = [...new Set([...(m.hidden_from || []), user.id])];
-                   return supabase
-                     .from('messages')
-                     .update({ hidden_from: updatedHidden })
-                     .eq('id', m.id);
-                 });
-                 await Promise.all(promises);
-               }
+              if (error) {
+                 const { data: msgs } = await supabase
+                  .from('messages')
+                  .select('id, hidden_from')
+                  .eq('conversation_id', conversationId);
+                
+                 if (msgs) {
+                   const promises = msgs.map(m => {
+                     const updatedHidden = [...new Set([...(m.hidden_from || []), user.id])];
+                     return supabase
+                       .from('messages')
+                       .update({ hidden_from: updatedHidden })
+                       .eq('id', m.id);
+                   });
+                   await Promise.all(promises);
+                 }
+              }
+            } catch (error) {
+              console.error("Failed to hide conversation:", error);
+              fetchInbox();
             }
-          } catch (error) {
-            console.error("Failed to hide conversation:", error);
-            fetchInbox(); // Put it back if it failed
           }
         }
-      }
-    ]
-  );
-};
+      ]
+    );
+  };
 
   useFocusEffect(
-    useCallback(() => {
+    ...[useCallback(() => {
       fetchInbox();
-    }, [fetchInbox])
+    }, [fetchInbox])]
   );
 
   if (!isConnected) {
@@ -180,7 +170,6 @@ export default function Messages() {
     </View>
   );
 
-  // 3. Render Right Action (The Delete Button)
   const renderRightActions = (id: string) => {
     return (
       <TouchableOpacity 
@@ -193,7 +182,6 @@ export default function Messages() {
   };
 
   return (
-    // 4. Wrap with GestureHandlerRootView
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View className="flex-1 bg-white">
         <Stack.Screen options={{ headerShown: false }} />
@@ -217,7 +205,8 @@ export default function Messages() {
           <FlatList
             data={conversations}
             keyExtractor={item => item.id.toString()}
-            contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+            // 👇 FIXED: Increased paddingBottom from 20 to 90 to clear your layout's navigation bar
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 90 }}
             ListEmptyComponent={renderEmptyState}
             renderItem={({ item }) => {
               const isMe = item.sender_id === currentUserId;
@@ -233,7 +222,6 @@ export default function Messages() {
                 : { uri: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=0D9488&color=fff&bold=true` };
 
               return (
-                // 5. Wrap each item in Swipeable
                 <Swipeable 
                   renderRightActions={() => renderRightActions(item.conversation_id)}
                   friction={2}

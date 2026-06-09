@@ -40,29 +40,30 @@ export default function FeaturedListingsScreen() {
 
   // 2. Fetch logic (wired like RoommateFeed)
   const fetchFeatured = async (showLoading = true) => {
-  if (!isConnected) return;
-  
-  try {
-    if (showLoading) setLoading(true);
+    if (!isConnected) return;
     
-    const { data, error } = await supabase
-      .from('listings')
-      .select(`
-        *,
-        profiles!inner(is_verified)
-      `)
-      .eq('profiles.is_verified', true) // Look at the profile table for the column
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    setItems(data || []);
-  } catch (error) {
-    console.error("Error fetching featured:", error);
-  } finally {
-    setLoading(false);
-    setRefreshing(false);
-  }
-};
+    try {
+      if (showLoading) setLoading(true);
+      
+      const { data, error } = await supabase
+        .from('listings')
+        .select(`
+          *,
+          profiles!inner(is_verified)
+        `)
+        .eq('profiles.is_verified', true) // ✅ Correctly separated parameter 1
+        .eq('status', 'active')           // ✅ Correctly separated parameter 2
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      setItems(data || []);
+    } catch (error) {
+      console.error("Error fetching featured:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   // 3. Realtime Updates
   useEffect(() => {
@@ -119,6 +120,13 @@ export default function FeaturedListingsScreen() {
     setFilteredItems(result);
   }, [searchQuery, selectedCategory, items]);
 
+  // --- MEMOIZED RENDER ITEM ---
+  const renderListingItem = useCallback(({ item }: { item: any }) => (
+    <View style={{ flex: 0.5, padding: 6 }}>
+      <ListingCard item={item} variant="sponsored" userId={userId || ""} />
+    </View>
+  ), [userId]);
+
   // --- OFFLINE BLOCKER (Matches RoommateFeed style) ---
   if (!isConnected && items.length === 0) {
     return (
@@ -174,7 +182,7 @@ export default function FeaturedListingsScreen() {
           <MapPin size={18} color="#16a34a" />
         </View>
       </View>
-       <BannerAdComponent containerClass="mb-2 bg-gray-50" />
+      <BannerAdComponent containerClass="mb-2 bg-gray-50" />
 
       {/* Categories */}
       <View className="py-4">
@@ -203,6 +211,10 @@ export default function FeaturedListingsScreen() {
           data={filteredItems}
           numColumns={2}
           keyExtractor={(item) => item.id.toString()}
+          renderItem={renderListingItem} // 🔥 Active memoized function reference
+          initialNumToRender={6}
+          maxToRenderPerBatch={10}
+          windowSize={5}
           contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 40 }}
           refreshControl={
             <RefreshControl 
@@ -211,11 +223,6 @@ export default function FeaturedListingsScreen() {
               tintColor="#005d14" 
             />
           }
-          renderItem={({ item }) => (
-            <View style={{ flex: 0.5, padding: 6 }}>
-              <ListingCard item={item} variant="sponsored" userId={userId || ""} />
-            </View>
-          )}
           ListEmptyComponent={
             <View className="items-center mt-20 px-10">
               <Ionicons name="filter-outline" size={60} color="#d1d5db" />

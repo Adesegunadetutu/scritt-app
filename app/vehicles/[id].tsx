@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Modal, Linking } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Modal, Linking, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -21,6 +21,19 @@ export default function VehicleDetailsScreen() {
   // Image Preview Modal States
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState("");
+  // --- Reporting System States ---
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingSubmit, setReportingSubmit] = useState(false);
+
+  const reportCategories = [
+    { label: "Fraudulent Dealer / Fake Listing", value: "scam" },
+    { label: "Stolen Vehicle / Documentation Discrepancy", value: "stolen_property" },
+    { label: "Inaccurate Condition / Tampered Mileage", value: "wrong_info" },
+    { label: "Vehicle Already Sold / Unavailable", value: "unavailable" },
+    { label: "Spam or Offensive Listing Particulars", value: "spam" },
+  ];
 
   useEffect(() => {
     if (id) fetchVehicleDetails();
@@ -87,6 +100,47 @@ export default function VehicleDetailsScreen() {
     }
   };
 
+  const handleReportSubmit = async () => {
+    if (!user) {
+      Alert.alert("Authentication Required", "Please log in to submit a verification audit request.");
+      return;
+    }
+    if (!selectedReason) {
+      Alert.alert("Reason Missing", "Please pick a matching categorization flag for your report.");
+      return;
+    }
+
+    setReportingSubmit(true);
+    try {
+      const { error } = await supabase
+        .from('listing_reports')
+        .insert({
+          reporter_id: user.id,
+          listing_id: id,
+          listing_type: 'vehicles', // Routes specifically into the vehicle auditing category
+          reason_category: selectedReason,
+          additional_details: reportDetails.trim() || null
+        });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Report Submitted", 
+        "Thank you. This vehicle listing has been queued for comprehensive administrative title evaluation.",
+        [{ text: "Understood", onPress: () => {
+           setIsReportModalVisible(false);
+           setSelectedReason(null);
+           setReportDetails("");
+        }}]
+      );
+    } catch (err: any) {
+      console.error("Vehicle Audit Submission Error:", err.message);
+      Alert.alert("Error", "We couldn't log the report at this moment. Please double check network status.");
+    } finally {
+      setReportingSubmit(false);
+    }
+  };
+
   if (loading) {
     return (
       <View className="flex-1 justify-center items-center bg-white">
@@ -106,6 +160,7 @@ export default function VehicleDetailsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
           
       {/* Header Bar */}
+      {/* Header Bar */}
       <View className="px-6 py-4 flex-row items-center justify-between">
         <View className="flex-row items-center">
           <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
@@ -113,6 +168,16 @@ export default function VehicleDetailsScreen() {
           </TouchableOpacity>
           <Text className="text-lg font-bold text-gray-800">Vehicle Details</Text>
         </View>
+
+        {/* Flag reporting entry point */}
+        {!loading && item && user?.id !== item.user_id && (
+          <TouchableOpacity 
+            onPress={() => setIsReportModalVisible(true)}
+            className="w-10 h-10 items-center justify-center bg-gray-50 rounded-full active:bg-gray-100"
+          >
+            <Ionicons name="flag-outline" size={18} color="#4b5563" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
@@ -311,6 +376,92 @@ export default function VehicleDetailsScreen() {
             />
           </View>
         </View>
+      </Modal>
+      {/* AUDITING & REPORTING PRESENTATION OVERLAY */}
+      <Modal
+        visible={isReportModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          className="flex-1 justify-end bg-black/40"
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setIsReportModalVisible(false)} 
+            className="flex-1" 
+          />
+          
+          <View className="bg-white rounded-t-[32px] px-6 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-black text-gray-900 tracking-tight">Report Vehicle Posting</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">Flag potentially fraudulent automobile listings</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsReportModalVisible(false)} 
+                className="bg-gray-100 p-2 rounded-full"
+              >
+                <Ionicons name="close" size={20} color="#4b5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+              {reportCategories.map((cat) => {
+                const isSelected = selectedReason === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    activeOpacity={0.75}
+                    onPress={() => setSelectedReason(cat.value)}
+                    className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                      isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                    }`}
+                  >
+                    <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                      {cat.label}
+                    </Text>
+                    <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                      isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Observations (Optional)</Text>
+              <TextInput
+                placeholder="Provide engine tags, suspect pricing inconsistencies, or fake contact data patterns..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                textAlignVertical="top"
+                className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+              />
+
+              <TouchableOpacity
+                onPress={handleReportSubmit}
+                disabled={reportingSubmit}
+                activeOpacity={0.8}
+                className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+              >
+                {reportingSubmit ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="alert-circle-outline" size={18} color="white" style={{ marginRight: 6 }} />
+                    <Text className="text-white font-extrabold text-sm tracking-wide">Submit Listing For Review</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

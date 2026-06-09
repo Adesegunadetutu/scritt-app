@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -16,7 +16,7 @@ import { Image } from "expo-image";
 
 // --- SKELETON / SHIMMER COMPONENTS ---
 const ShimmerEffect = ({ width, height, className }: { width: any, height: number, className?: string }) => {
-const shimmerValue = React.useRef(new Animated.Value(0)).current;
+  const shimmerValue = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(
@@ -108,7 +108,18 @@ export default function MyListingsScreen() {
     return '#7C3AED';
   };
 
-  const renderItem = ({ item }: { item: any }) => {
+  // Status Badge Styling Helper
+  const getStatusBadgeStyle = (status: string) => {
+    const currentStatus = status?.toLowerCase() || 'active';
+    if (currentStatus === 'sold') return { bg: 'bg-red-50', text: 'text-red-600', label: 'Sold' };
+    if (currentStatus === 'rented') return { bg: 'bg-orange-50', text: 'text-orange-600', label: 'Rented' };
+    if (currentStatus === 'matched') return { bg: 'bg-blue-50', text: 'text-blue-600', label: 'Matched' };
+    if (currentStatus === 'pending') return { bg: 'bg-yellow-50', text: 'text-yellow-600', label: 'Pending' };
+    return null; // Don't show an overlay badge if it's 'active'
+  };
+
+  // --- MEMOIZED RENDER ITEM COMPONENT ---
+  const renderItem = useCallback(({ item }: { item: any }) => {
     const imageKey = Array.isArray(item.images) && item.images.length > 0 
       ? item.images[0] 
       : item.images;
@@ -117,19 +128,31 @@ export default function MyListingsScreen() {
       ? imageKey 
       : `https://xaevvkjdcmcioswzalyr.supabase.co/storage/v1/object/public/listings/${imageKey}`;
 
+    const statusBadge = getStatusBadgeStyle(item.status);
+
     return (
       <TouchableOpacity 
         activeOpacity={0.7}
         onPress={() => router.push(`/profile/manage-listing/${item.id}`)}
         className="bg-[#ffffff] flex-row p-4 mb-3 items-center shadow-sm rounded-xl"
       >
-        <Image
-          source={{ uri: displayImage }}
-          style={{ width: 90, height: 90, borderRadius: 12 }}
-          contentFit="cover"
-          placeholder={{ uri: 'https://via.placeholder.com/90' }}
-          transition={200}
-        />
+        <View style={{ width: 90, height: 90, position: 'relative' }}>
+          <Image
+            source={{ uri: displayImage }}
+            style={{ width: 90, height: 90, borderRadius: 12 }}
+            contentFit="cover"
+            placeholder={{ uri: 'https://via.placeholder.com/90' }}
+            transition={200}
+          />
+          {/* Subtle overlay badge for inactive items */}
+          {statusBadge && (
+            <View className={`absolute bottom-0 left-0 right-0 ${statusBadge.bg} py-0.5 rounded-b-[12px] items-center border-t border-white/20`}>
+              <Text className={`${statusBadge.text} font-black text-[9px] uppercase tracking-wider`}>
+                {statusBadge.label}
+              </Text>
+            </View>
+          )}
+        </View>
 
         <View className="flex-1 ml-4 h-[90px] justify-between">
           <View>
@@ -163,7 +186,7 @@ export default function MyListingsScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, []);
 
   return (
     <View className="flex-1 bg-app-bg">
@@ -210,7 +233,10 @@ export default function MyListingsScreen() {
           <FlatList
             data={myItems}
             keyExtractor={(item) => item.id.toString()}
-            renderItem={renderItem}
+            renderItem={renderItem} // 🔥 Now targets fast, memoized loop
+            initialNumToRender={8}
+            maxToRenderPerBatch={10}
+            windowSize={5}
             contentContainerStyle={{ 
               paddingHorizontal: 16, 
               paddingTop: 16, 

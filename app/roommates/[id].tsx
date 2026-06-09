@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Dimensions, Alert, Platform, StatusBar } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Dimensions, Alert, Platform, StatusBar, KeyboardAvoidingView, Modal, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +15,20 @@ export default function RoommateDetails() {
   const [loading, setLoading] = useState(true);
   const [activeImage, setActiveImage] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // --- Reporting System States ---
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingSubmit, setReportingSubmit] = useState(false);
+
+  const reportCategories = [
+    { label: "Scam / Fake Hostel or Price", value: "scam" },
+    { label: "Inappropriate / Offensive Host Behavior", value: "offensive" },
+    { label: "Misleading Preferences / False Profiling", value: "wrong_info" },
+    { label: "Room No Longer Available / Filled", value: "unavailable" },
+    { label: "Spam / Duplicate Request Listing", value: "spam" },
+  ];
 
   useEffect(() => { 
     if (id && id !== 'undefined') {
@@ -115,6 +129,47 @@ export default function RoommateDetails() {
     );
   };
 
+  const handleReportSubmit = async () => {
+    if (!currentUserId) {
+      Alert.alert("Authentication Required", "Please log in to flag this roommate posting.");
+      return;
+    }
+    if (!selectedReason) {
+      Alert.alert("Reason Required", "Please tap a reason category before submitting.");
+      return;
+    }
+
+    setReportingSubmit(true);
+    try {
+      const { error } = await supabase
+        .from('listing_reports')
+        .insert({
+          reporter_id: currentUserId,
+          listing_id: id,
+          listing_type: 'roommates', // Targets our polymorphic table category correctly
+          reason_category: selectedReason,
+          additional_details: reportDetails.trim() || null
+        });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Report Received", 
+        "Thank you. This community roommate request has been prioritized for moderation verification.",
+        [{ text: "OK", onPress: () => {
+           setIsReportModalVisible(false);
+           setSelectedReason(null);
+           setReportDetails("");
+        }}]
+      );
+    } catch (err: any) {
+      console.error("Roommate Reporting Error:", err.message);
+      Alert.alert("Submission Failed", "We couldn't log your flag at this time. Check your connection.");
+    } finally {
+      setReportingSubmit(false);
+    }
+  };
+
   if (loading || !item) return (
     <View className="flex-1 justify-center items-center bg-white">
       <ActivityIndicator size="large" color="#000" />
@@ -129,14 +184,27 @@ export default function RoommateDetails() {
       <Stack.Screen options={{ headerShown: false }} />
       
       {/* 1. STICKY HEADER */}
+      {/* 1. STICKY HEADER */}
       <View 
-        style={{ paddingTop: Platform.OS === 'ios' ? 50 : StatusBar.currentHeight + 10 }}
-        className="bg-white border-b border-gray-100 px-6 pb-4 flex-row items-center"
+        style={{ paddingTop: Platform.OS === 'ios' ? 50 : (StatusBar.currentHeight ?? 0) + 10 }}
+        className="bg-white border-b border-gray-100 px-6 pb-4 flex-row items-center justify-between"
       >
-        <TouchableOpacity onPress={() => router.back()} className="mr-4">
-          <Ionicons name="chevron-back" size={28} color="black" />
-        </TouchableOpacity>
-        <Text className="text-xl font-black text-gray-900">Roommate Details</Text>
+        <View className="flex-row items-center">
+          <TouchableOpacity onPress={() => router.back()} className="mr-4">
+            <Ionicons name="chevron-back" size={28} color="black" />
+          </TouchableOpacity>
+          <Text className="text-xl font-black text-gray-900">Roommate Details</Text>
+        </View>
+
+        {/* Flag button entry layout */}
+        {!loading && item && currentUserId !== item.user_id && (
+          <TouchableOpacity 
+            onPress={() => setIsReportModalVisible(true)}
+            className="w-10 h-10 items-center justify-center bg-gray-50 rounded-full active:bg-gray-100"
+          >
+            <Ionicons name="flag-outline" size={18} color="#4b5563" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -257,6 +325,94 @@ export default function RoommateDetails() {
           </>
         )}
       </View>
+
+      {/* ROOMMATE AUDITING SHEET COMPONENT */}
+      <Modal
+        visible={isReportModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          className="flex-1 justify-end bg-black/40"
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setIsReportModalVisible(false)} 
+            className="flex-1" 
+          />
+          
+          <View className="bg-white rounded-t-[32px] px-6 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-black text-gray-900 tracking-tight">Report Roommate Request</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">Help filter off campus housing bad listings</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsReportModalVisible(false)} 
+                className="bg-gray-100 p-2 rounded-full"
+              >
+                <Ionicons name="close" size={20} color="#4b5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+              {reportCategories.map((cat) => {
+                const isSelected = selectedReason === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    activeOpacity={0.75}
+                    onPress={() => setSelectedReason(cat.value)}
+                    className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                      isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                    }`}
+                  >
+                    <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                      {cat.label}
+                    </Text>
+                    <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                      isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Explanations (Optional)</Text>
+              <TextInput
+                placeholder="Tell us more about rent inconsistencies, fake pictures or safety violations..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                textAlignVertical="top"
+                className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+              />
+
+              <TouchableOpacity
+                onPress={handleReportSubmit}
+                disabled={reportingSubmit}
+                activeOpacity={0.8}
+                className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+              >
+                {reportingSubmit ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="alert-circle-outline" size={18} color="white" style={{ marginRight: 6 }} />
+                    <Text className="text-white font-extrabold text-sm tracking-wide">File Integrity Infraction</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      
     </View>
   );
 }

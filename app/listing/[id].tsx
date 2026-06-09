@@ -46,6 +46,18 @@ export default function ListingDetails() {
   const [sending, setSending] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingSubmit, setReportingSubmit] = useState(false);
+
+  const reportCategories = [
+    { label: "Fraud or Scam (Fake Seller)", value: "scam" },
+    { label: "Incorrect Information (Price/Location)", value: "wrong_info" },
+    { label: "Item Sold / Room Unavailable", value: "unavailable" },
+    { label: "Spam or Duplicate Post", value: "spam" },
+    { label: "Offensive or Inappropriate Content", value: "offensive" },
+  ];
 
   // Table Mapping Logic - Wrapped in useMemo for stability
   const targetTable = useMemo(() => {
@@ -69,7 +81,7 @@ export default function ListingDetails() {
           supabase.auth.getUser(),
           supabase
             .from(targetTable)
-            .select(`*, profiles:user_id (full_name, avatar_url, lat, lng, is_verified)`) // Using standard relation first
+            .select(`*, profiles:user_id (full_name, avatar_url, lat, lng, is_verified, phone)`) 
             .eq('id', id)
             .single()
         ]);
@@ -138,6 +150,35 @@ export default function ListingDetails() {
     getDetails();
   }, [id, targetTable, isConnected]);
 
+  // --- Call & WhatsApp Utilities ---
+  const handleWhatsAppLink = () => {
+    const phoneNumber = listing?.phone || listing?.profiles?.phone;
+    if (!phoneNumber) {
+      Alert.alert("Error", "Seller did not provide a phone number.");
+      return;
+    }
+    const cleanNumber = phoneNumber.replace(/\D/g, ''); 
+    const msg = encodeURIComponent(`Hello! I'm interested in your listing: "${listing?.title}" on Scritt.`);
+    const url = `whatsapp://send?phone=${cleanNumber}&text=${msg}`;
+    
+    Linking.canOpenURL(url).then((supported) => {
+      if (supported) {
+        return Linking.openURL(url);
+      } else {
+        return Linking.openURL(`https://wa.me/${cleanNumber}?text=${msg}`);
+      }
+    }).catch(() => Alert.alert("Error", "Could not open WhatsApp."));
+  };
+
+  const handlePhoneCall = () => {
+    const phoneNumber = listing?.phone || listing?.profiles?.phone;
+    if (!phoneNumber) {
+      Alert.alert("Error", "Seller did not provide a phone number.");
+      return;
+    }
+    Linking.openURL(`tel:${phoneNumber}`).catch(() => Alert.alert("Error", "Could not initiate call."));
+  };
+
   // --- OFFLINE RENDER ---
   if (!isConnected) {
     return (
@@ -188,11 +229,47 @@ export default function ListingDetails() {
     }
   };
 
-  // OPTIMIZATION: Memoize renderImageItem to prevent re-creation on every scroll/render
+  const handleReportSubmit = async () => {
+    if (!selectedReason) {
+      Alert.alert("Hold on", "Please select a reason for reporting this listing.");
+      return;
+    }
+
+    setReportingSubmit(true);
+    try {
+      const { error } = await supabase
+        .from('listing_reports')
+        .insert({
+          reporter_id: currentUserId,
+          listing_id: id,
+          listing_type: targetTable, 
+          reason_category: selectedReason,
+          additional_details: reportDetails.trim() || null
+        });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Report Submitted", 
+        "Thank you! Our moderators will review this post shortly.",
+        [{ text: "OK", onPress: () => {
+           setIsReportModalVisible(false);
+           setSelectedReason(null);
+           setReportDetails("");
+        }}]
+      );
+    } catch (err) {
+      console.error("Reporting Error:", err);
+      Alert.alert("Submission Failed", "Something went wrong while logging your report. Try again.");
+    } finally {
+      setReportingSubmit(false);
+    }
+  };
+
   const renderImageItem = useCallback(({ item }: { item: string }) => (
     <TouchableOpacity 
       activeOpacity={0.9} 
-      onPress={() => setIsModalVisible(true)} // <-- Open modal on click
+      onPress={() => setIsModalVisible(true)} 
       style={{ width: screenWidth - 32, marginRight: 16 }}
     >
       <Image
@@ -214,23 +291,41 @@ export default function ListingDetails() {
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
         {/* Navbar */}
+        {/* Navbar */}
         <View className="px-4 py-3 flex-row items-center justify-between">
-          <TouchableOpacity onPress={() => router.back()} className="p-2 rounded-full ">
-            <ChevronLeft size={22} color="black" />
-          </TouchableOpacity>
+  <TouchableOpacity onPress={() => router.back()} className="p-2 rounded-full">
+    <ChevronLeft size={22} color="black" />
+  </TouchableOpacity>
 
-          {!loading && (
-            <TouchableOpacity 
-              onPress={() => router.push(`/profile/${listing?.user_id}`)} 
-              className="flex-row items-center bg-accent py-1.5 px-3 rounded-full shadow-sm border border-gray-100"
-            >
-              <Text className="text-[13px] font-bold text-gray-800 mr-2">Posted by:  {sellerName}</Text>
-              <View className="w-7 h-7 rounded-full bg-gray-200 overflow-hidden">
-                <Image source={{ uri: sellerAvatar }} className="w-full h-full" />
-              </View>
-            </TouchableOpacity>
-          )}
+  {/* Added flex-1, justify-end, and ml-4 to make this right-side container flexible 
+      but keeps everything pushed clean against the right edge */}
+  <View className="flex-1 flex-row items-center justify-end ml-4">
+    {!loading && (
+      <TouchableOpacity 
+        onPress={() => router.push(`/profile/${listing?.user_id}`)} 
+        className={`flex-row items-center bg-accent py-1.5 px-3 rounded-full shadow-sm border border-gray-100 flex-1 max-w-[75%] ${!isOwner ? 'mr-2' : ''}`}
+      >
+        {/* Added numberOfLines={1} to truncate long names natively with an ellipsis (...) */}
+        <Text numberOfLines={1} className="text-[13px] font-bold text-gray-800 mr-2 flex-1">
+          Posted by:  {sellerName}
+        </Text>
+        <View className="w-7 h-7 rounded-full bg-gray-200 overflow-hidden shrink-0">
+          <Image source={{ uri: sellerAvatar }} className="w-full h-full" />
         </View>
+      </TouchableOpacity>
+    )}
+
+    {/* NEW: Flag icon entry point */}
+    {!loading && !isOwner && (
+      <TouchableOpacity 
+        onPress={() => setIsReportModalVisible(true)}
+        className="p-2 bg-gray-50 rounded-full active:bg-gray-100 shrink-0"
+      >
+        <Ionicons name="flag-outline" size={18} color="#4b5563" />
+      </TouchableOpacity>
+    )}
+  </View>
+</View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           {loading ? <SkeletonItem /> : (
@@ -253,7 +348,7 @@ export default function ListingDetails() {
                     if (index !== activeImageIndex) setActiveImageIndex(index);
                   }}
                   keyExtractor={(_, index) => index.toString()}
-                  initialNumToRender={1} // Optimization: Don't render all images at once
+                  initialNumToRender={1} 
                 />
                 
                 {listing?.slider_images?.length > 1 && (
@@ -338,7 +433,7 @@ export default function ListingDetails() {
                   behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                   keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
                 >
-                  <View className="bg-white border-t rounded-full mt-6 border-gray-100 px-4 py-3 flex-row items-center shadow-lg">
+                  <View className="bg-white border border-gray-100 rounded-full mt-6 px-4 py-3 flex-row items-center shadow-sm">
                     <TextInput 
                       placeholder={`Reply to ${sellerName.split(' ')[0]}...`} 
                       placeholderTextColor="#9CA3AF"
@@ -369,6 +464,31 @@ export default function ListingDetails() {
                     Manage Listing
                   </Text>
                 </TouchableOpacity>
+              )}
+
+              {/* INTEGRATED EXTERNAL CONTACT METHODS (Placed exactly above the 'More from seller' shelf) */}
+              {!isOwner && (
+                <View className="mt-8 flex-row items-center justify-between">
+                  {/* WhatsApp Action */}
+                  <TouchableOpacity
+                    onPress={handleWhatsAppLink}
+                    activeOpacity={0.8}
+                    className="flex-1 flex-row items-center justify-center bg-green-50 border border-green-100 h-12 rounded-[20px] mr-3"
+                  >
+                    <Ionicons name="logo-whatsapp" size={20} color="#22c55e" style={{ marginRight: 8 }} />
+                    <Text className="text-green-700 font-bold text-sm">WhatsApp Chat</Text>
+                  </TouchableOpacity>
+
+                  {/* Call Action */}
+                  <TouchableOpacity
+                    onPress={handlePhoneCall}
+                    activeOpacity={0.8}
+                    className="flex-1 flex-row items-center justify-center bg-secondary border border-gray-100 h-12 rounded-[20px]"
+                  >
+                    <Ionicons name="call-outline" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text className="text-white font-bold text-sm">Call Seller</Text>
+                  </TouchableOpacity>
+                </View>
               )}
 
               {/* MORE FROM SELLER */}
@@ -440,6 +560,97 @@ export default function ListingDetails() {
               </Text>
             </View>
           </SafeAreaView>
+        </Modal>
+
+        {/* MODERN REPORTING BOTTOM SHEET MODAL */}
+        <Modal
+          visible={isReportModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setIsReportModalVisible(false)}
+        >
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === "ios" ? "padding" : "height"} 
+            className="flex-1 justify-end bg-black/40"
+          >
+            <TouchableOpacity 
+              activeOpacity={1} 
+              onPress={() => setIsReportModalVisible(false)} 
+              className="flex-1" 
+            />
+            
+            <View className="bg-white rounded-t-[32px] px-5 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+              {/* Header */}
+              <View className="flex-row justify-between items-center mb-4">
+                <View>
+                  <Text className="text-xl font-black text-gray-900 tracking-tight">Report Listing</Text>
+                  <Text className="text-xs text-gray-400 mt-0.5">Help us understand what's wrong with this post</Text>
+                </View>
+                <TouchableOpacity 
+                  onPress={() => setIsReportModalVisible(false)} 
+                  className="bg-gray-100 p-1.5 rounded-full"
+                >
+                  <X size={18} color="#4b5563" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+                {/* Category Selection Map */}
+                {reportCategories.map((cat) => {
+                  const isSelected = selectedReason === cat.value;
+                  return (
+                    <TouchableOpacity
+                      key={cat.value}
+                      activeOpacity={0.7}
+                      onPress={() => setSelectedReason(cat.value)}
+                      className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                        isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                      }`}
+                    >
+                      <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                        {cat.label}
+                      </Text>
+                      <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                        isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                      }`}>
+                        {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {/* Additional Details Textbox */}
+                <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Details (Optional)</Text>
+                <TextInput
+                  placeholder="Provide more details to help our moderators inspect this..."
+                  placeholderTextColor="#9ca3af"
+                  multiline
+                  numberOfLines={3}
+                  value={reportDetails}
+                  onChangeText={setReportDetails}
+                  textAlignVertical="top"
+                  className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+                />
+
+                {/* Confirm Action Button */}
+                <TouchableOpacity
+                  onPress={handleReportSubmit}
+                  disabled={reportingSubmit}
+                  activeOpacity={0.8}
+                  className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+                >
+                  {reportingSubmit ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <>
+                      <Ionicons name="alert-circle-outline" size={18} color="white" style={{ marginRight: 6 }} />
+                      <Text className="text-white font-extrabold text-sm tracking-wide">Submit Report</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
         </Modal>
 
     </SafeAreaView>

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Platform, FlatList, Modal, Linking } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Platform, FlatList, Modal, Linking, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 const { width } = Dimensions.get('window');
 const BUCKET_URL = "https://xaevvkjdcmcioswzalyr.supabase.co/storage/v1/object/public/accommodation_listings/";
@@ -19,6 +20,20 @@ export default function AccommodationDetails() {
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isStartingChat, setIsStartingChat] = useState(false);
+
+  // --- Reporting States ---
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingSubmit, setReportingSubmit] = useState(false);
+
+  const reportCategories = [
+    { label: "Fraudulent Agent / Scam Listing", value: "scam" },
+    { label: "Incorrect Rent Price or Amenities", value: "wrong_info" },
+    { label: "Hostel Room Unavailable / Already Taken", value: "unavailable" },
+    { label: "Spam or Duplicate Post", value: "spam" },
+    { label: "Offensive or Inappropriate Description", value: "offensive" },
+  ];
 
   // Modal States
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
@@ -81,6 +96,47 @@ export default function AccommodationDetails() {
     }
   };
 
+  const handleReportSubmit = async () => {
+    if (!user) {
+      Alert.alert("Authentication Required", "Please login to report this listing.");
+      return;
+    }
+    if (!selectedReason) {
+      Alert.alert("Hold on", "Please select a reason for reporting this property.");
+      return;
+    }
+
+    setReportingSubmit(true);
+    try {
+      const { error } = await supabase
+        .from('listing_reports')
+        .insert({
+          reporter_id: user.id,
+          listing_id: id,
+          listing_type: 'accommodations', // Hardcoded table pointer for this specific file context
+          reason_category: selectedReason,
+          additional_details: reportDetails.trim() || null
+        });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Report Submitted", 
+        "Thank you! Our housing moderators will verify this accommodation post shortly.",
+        [{ text: "OK", onPress: () => {
+           setIsReportModalVisible(false);
+           setSelectedReason(null);
+           setReportDetails("");
+        }}]
+      );
+    } catch (err: any) {
+      console.error("Reporting Error:", err.message);
+      Alert.alert("Submission Failed", "Something went wrong while logging your report. Try again.");
+    } finally {
+      setReportingSubmit(false);
+    }
+  };
+
   if (loading) {
     return (
       <View className="flex-1 justify-center items-center bg-white">
@@ -96,6 +152,7 @@ export default function AccommodationDetails() {
           <Stack.Screen options={{ headerShown: false }} />
             
             {/* Header Section */}
+            {/* Header Section */}
             <View className="px-6 py-4 flex-row items-center justify-between">
               <View className="flex-row items-center">
                 <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
@@ -104,6 +161,15 @@ export default function AccommodationDetails() {
                 <Text className="text-lg font-bold text-gray-800 ">Accommodation Details</Text>
               </View>
               
+              {/* NEW: Report Entry Point (Hidden if loading or if it's your own hostel post) */}
+              {!loading && item && user?.id !== item.user_id && (
+                <TouchableOpacity 
+                  onPress={() => setIsReportModalVisible(true)}
+                  className="p-2 bg-gray-50 rounded-full active:bg-gray-100"
+                >
+                  <Ionicons name="flag-outline" size={20} color="#4b5563" />
+                </TouchableOpacity>
+              )}
             </View>
 
       <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
@@ -309,6 +375,189 @@ export default function AccommodationDetails() {
     </View>
   </View>
 </Modal>
+
+{/* MODERN REPORTING BOTTOM SHEET MODAL */}
+      <Modal
+        visible={isReportModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          className="flex-1 justify-end bg-black/40"
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setIsReportModalVisible(false)} 
+            className="flex-1" 
+          />
+          
+          <View className="bg-white rounded-t-[32px] px-5 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+            {/* Header */}
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-black text-gray-900 tracking-tight">Report Accommodation</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">Help us understand what's wrong with this hostel/room post</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsReportModalVisible(false)} 
+                className="bg-gray-100 p-1.5 rounded-full"
+              >
+                <Ionicons name="close" size={20} color="#4b5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+              {/* Category Options */}
+              {reportCategories.map((cat) => {
+                const isSelected = selectedReason === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedReason(cat.value)}
+                    className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                      isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                    }`}
+                  >
+                    <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                      {cat.label}
+                    </Text>
+                    <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                      isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Extra context comment wrapper */}
+              <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Details (Optional)</Text>
+              <TextInput
+                placeholder="E.g., Agent is asking for inspection fees upfront..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                textAlignVertical="top"
+                className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+              />
+
+              {/* Submit Trigger Action */}
+              <TouchableOpacity
+                onPress={handleReportSubmit}
+                disabled={reportingSubmit}
+                activeOpacity={0.8}
+                className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+              >
+                {reportingSubmit ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="alert-circle-outline" size={18} color="white" style={{ marginRight: 6 }} />
+                    <Text className="text-white font-extrabold text-sm tracking-wide">Submit Report</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* MODERN REPORTING BOTTOM SHEET MODAL */}
+      <Modal
+        visible={isReportModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          className="flex-1 justify-end bg-black/40"
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setIsReportModalVisible(false)} 
+            className="flex-1" 
+          />
+          
+          <View className="bg-white rounded-t-[32px] px-5 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+            {/* Header */}
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-black text-gray-900 tracking-tight">Report Accommodation</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">Help us understand what's wrong with this hostel/room post</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsReportModalVisible(false)} 
+                className="bg-gray-100 p-1.5 rounded-full"
+              >
+                <Ionicons name="close" size={20} color="#4b5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+              {/* Category Options */}
+              {reportCategories.map((cat) => {
+                const isSelected = selectedReason === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedReason(cat.value)}
+                    className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                      isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                    }`}
+                  >
+                    <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                      {cat.label}
+                    </Text>
+                    <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                      isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Extra context comment wrapper */}
+              <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Details (Optional)</Text>
+              <TextInput
+                placeholder="E.g., Agent is asking for inspection fees upfront..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                textAlignVertical="top"
+                className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+              />
+
+              {/* Submit Trigger Action */}
+              <TouchableOpacity
+                onPress={handleReportSubmit}
+                disabled={reportingSubmit}
+                activeOpacity={0.8}
+                className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+              >
+                {reportingSubmit ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="alert-circle-outline" size={18} color="white" style={{ marginRight: 6 }} />
+                    <Text className="text-white font-extrabold text-sm tracking-wide">Submit Report</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      
     </SafeAreaView>
   );
 }

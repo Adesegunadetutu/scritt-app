@@ -2,7 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { 
   View, Text, ScrollView, TouchableOpacity, 
   ActivityIndicator, Dimensions, Linking, StatusBar, 
-  Alert, Modal
+  Alert, Modal,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -22,6 +25,20 @@ export default function ServiceDetail() {
   const [activeImg, setActiveImg] = useState(0);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState("");
+
+  // --- Reporting States ---
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportingSubmit, setReportingSubmit] = useState(false);
+
+  const reportCategories = [
+    { label: "Scam / Fraudulent Service Provider", value: "scam" },
+    { label: "Misleading Prices or Fake Portfolios", value: "wrong_info" },
+    { label: "Unresponsive / Out of Business", value: "unavailable" },
+    { label: "Spam / Duplicate Service Posting", value: "spam" },
+    { label: "Inappropriate or Abusive Content", value: "offensive" },
+  ];
   
 
   useEffect(() => { fetchInitialData(); }, [id]);
@@ -98,6 +115,48 @@ onPress: async () => {
       }
     });
   };
+
+  const handleReportSubmit = async () => {
+    if (!user) {
+      Alert.alert("Authentication Required", "Please login to report this service provider.");
+      return;
+    }
+    if (!selectedReason) {
+      Alert.alert("Hold on", "Please select a reason for reporting this service listing.");
+      return;
+    }
+
+    setReportingSubmit(true);
+    try {
+      const { error } = await supabase
+        .from('listing_reports')
+        .insert({
+          reporter_id: user.id,
+          listing_id: id,
+          listing_type: 'services', // Explicitly tags polymorphic relation to your services table
+          reason_category: selectedReason,
+          additional_details: reportDetails.trim() || null
+        });
+
+      if (error) throw error;
+
+      Alert.alert(
+        "Report Logged", 
+        "Thank you! Our system administrators will review this provider's listing immediately.",
+        [{ text: "OK", onPress: () => {
+           setIsReportModalVisible(false);
+           setSelectedReason(null);
+           setReportDetails("");
+        }}]
+      );
+    } catch (err: any) {
+      console.error("Reporting Error:", err.message);
+      Alert.alert("Submission Failed", "Something went wrong while sending your report. Please try again.");
+    } finally {
+      setReportingSubmit(false);
+    }
+  };
+
   const formatRelativeTime = (dateString: string) => {
   if (!dateString) return '';
   
@@ -137,14 +196,27 @@ onPress: async () => {
       <Stack.Screen options={{ headerShown: false }} />
       
       {/* --- 1. NEW TOP HEADER (ARROW ABOVE IMAGE) --- */}
-      <View className="px-5 py-3 flex-row items-center border-b border-gray-100">
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          className="w-10 h-10 items-center justify-center rounded-full"
-        >
-          <Ionicons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
-        <Text className="text-xl font-black text-gray-900">Service Details</Text>
+      {/* --- 1. TOP HEADER --- */}
+      <View className="px-5 py-3 flex-row items-center justify-between border-b border-gray-100">
+        <View className="flex-row items-center">
+          <TouchableOpacity 
+            onPress={() => router.back()} 
+            className="w-10 h-10 items-center justify-center rounded-full"
+          >
+            <Ionicons name="arrow-back" size={24} color="black" />
+          </TouchableOpacity>
+          <Text className="text-xl font-black text-gray-900 ml-2">Service Details</Text>
+        </View>
+
+        {/* Report Button (Hidden from owners or if loading has not completed) */}
+        {!loading && service && !isOwner && (
+          <TouchableOpacity 
+            onPress={() => setIsReportModalVisible(true)}
+            className="w-9 h-9 items-center justify-center bg-gray-50 rounded-full active:bg-gray-100"
+          >
+            <Ionicons name="flag-outline" size={18} color="#4b5563" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
@@ -451,6 +523,97 @@ onPress: async () => {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {/* REPORTING BOTTOM SHEET MODAL */}
+      <Modal
+        visible={isReportModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          className="flex-1 justify-end bg-black/40"
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setIsReportModalVisible(false)} 
+            className="flex-1" 
+          />
+          
+          <View className="bg-white rounded-t-[32px] px-5 pt-6 pb-8 border-t border-gray-100 shadow-2xl max-h-[80%]">
+            {/* Header elements */}
+            <View className="flex-row justify-between items-center mb-4">
+              <View>
+                <Text className="text-xl font-black text-gray-900 tracking-tight">Report Business Listing</Text>
+                <Text className="text-xs text-gray-400 mt-0.5">Help protect our student ecosystem</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsReportModalVisible(false)} 
+                className="bg-gray-100 p-1.5 rounded-full"
+              >
+                <Ionicons name="close" size={20} color="#4b5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} className="mt-2">
+              {/* Mapping categories options */}
+              {reportCategories.map((cat) => {
+                const isSelected = selectedReason === cat.value;
+                return (
+                  <TouchableOpacity
+                    key={cat.value}
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedReason(cat.value)}
+                    className={`flex-row items-center justify-between p-4 mb-2.5 rounded-[18px] border ${
+                      isSelected ? 'bg-green-50/60 border-green-200' : 'bg-gray-50/50 border-gray-100/80'
+                    }`}
+                  >
+                    <Text className={`text-[14px] font-bold ${isSelected ? 'text-green-800' : 'text-gray-700'}`}>
+                      {cat.label}
+                    </Text>
+                    <View className={`w-5 h-5 rounded-full border items-center justify-center ${
+                      isSelected ? 'border-green-600 bg-green-600' : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <View className="w-2 h-2 rounded-full bg-white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <Text className="text-gray-900 font-bold text-xs mt-4 mb-2 ml-1">Additional Details (Optional)</Text>
+              <TextInput
+                placeholder="Provide details about why this service provider should be audited..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={3}
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                textAlignVertical="top"
+                className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-gray-800 font-medium text-xs h-20"
+              />
+
+              {/* Red warning submission handler */}
+              <TouchableOpacity
+                onPress={handleReportSubmit}
+                disabled={reportingSubmit}
+                activeOpacity={0.8}
+                className="bg-red-600 h-12 rounded-full flex-row items-center justify-center mt-6 shadow-sm"
+              >
+                {reportingSubmit ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="alert-circle-outline" size={18} color="white" style={{ marginRight: 6 }} />
+                    <Text className="text-white font-extrabold text-sm tracking-wide">Submit Verification Review</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      
     </SafeAreaView>
   );
 }

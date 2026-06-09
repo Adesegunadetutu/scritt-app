@@ -3,20 +3,21 @@ import { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import Constants from 'expo-constants';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
 import Toast from "react-native-toast-message";
 import "../global.css";
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useAppInit } from "../src/hooks/useAppInit";
 import * as Linking from 'expo-linking';
-import { initMobileAds } from "@/lib/ads/initMobileAds";
+import { initMobileAds } from '@/lib/ads/initMobileAds';
 import { FavoritesProvider } from '../src/context/FavoritesContext';
 import { useNetworkObserver } from '../src/hooks/useNetworkObserver';
 import OfflineNotice from '@/components/OfflineNotice';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useAppUpdateChecker } from '../src/hooks/useAppUpdateChecker';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device'; 
+
 
 
 
@@ -64,19 +65,22 @@ if (__DEV__) {
 let recoveryHandled = false;
 
 // 🔔 NOTIFICATION HANDLER
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+if (Platform.OS !== 'web' && Notifications) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 // 🔔 REGISTER FUNCTION
 async function registerForPushNotificationsAsync() {
   try {
-    if (!Device.isDevice) {
+    if (Platform.OS === 'web') return null;
+    if (!Device || !Device.isDevice) {
       console.log("❌ Must use physical device");
       return null;
     }
@@ -165,9 +169,12 @@ function RootLayoutNav() {
 const hasHandledRecovery = useRef(false);
 
   // 🔔 HANDLE COLD START
-  const lastResponse = Notifications.useLastNotificationResponse();
+  const lastResponse = (Platform.OS !== 'web' && Notifications?.useLastNotificationResponse) 
+  ? Notifications.useLastNotificationResponse() 
+  : null;
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     if (
       lastResponse &&
       lastResponse.notification.request.content.data?.screen &&
@@ -223,6 +230,7 @@ useEffect(() => {
 
   // 🔔 STEP 1: GET TOKEN ONCE
   useEffect(() => {
+    if (Platform.OS === 'web') return;
   registerForPushNotificationsAsync().then(token => {
     if (token) {
       console.log("📱 TOKEN RECEIVED:", token);
@@ -236,13 +244,14 @@ useEffect(() => {
   // 🔔 STEP 2: SAVE TOKEN WHEN USER IS READY
   // 🔔 STEP 2: SAVE TOKEN & DEVICE INFO WHEN USER IS READY
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     if (expoPushToken && user) {
       const syncDeviceData = async () => {
         console.log("🚀 Syncing token and device info...");
 
         // Capture hardware details
-        const deviceId = Device.osBuildId || "unknown_id"; 
-        const deviceName = Device.deviceName || "Unknown Device";
+       const deviceId = Device?.osBuildId || "unknown_id"; 
+        const deviceName = Device?.deviceName || "Unknown Device";
 
         const { error } = await supabase
           .from('profiles')
@@ -266,7 +275,8 @@ useEffect(() => {
 
   // 🔔 NOTIFICATION CLICK (BACKGROUND)
   useEffect(() => {
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+    if (Platform.OS === 'web' || !Notifications) return;
+    responseListener.current = Notifications.addNotificationResponseReceivedListener((response: any) => {
       const data = response.notification.request.content.data as { screen?: string; id?: string };
 
       if (data?.screen) {
@@ -360,7 +370,9 @@ useEffect(() => {
 
 
 useEffect(() => {
-  initMobileAds();
+  if (Platform.OS !== 'web') { // Wrap this call
+    initMobileAds();
+  }
 }, []);
 
   // HIDE SPLASH

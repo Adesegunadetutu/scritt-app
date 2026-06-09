@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -8,7 +8,8 @@ import {
   Platform,
   Animated,
   Easing,
-  Alert
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { Ionicons } from "@expo/vector-icons";
@@ -53,18 +54,43 @@ const ShimmerEffect = ({ width, height, className }: { width: any, height: numbe
 };
 
 const ListingRowSkeleton = () => (
-  <View className="flex-row bg-app-bg rounded-xl p-4 mb-3 items-center border border-gray-50">
-    <ShimmerEffect width={90} height={90} className="rounded-xl" />
-    <View className="flex-1 ml-4 h-[90px] justify-between">
-      <View>
-        <ShimmerEffect width="75%" height={16} className="rounded" />
-        <ShimmerEffect width="100%" height={12} className="rounded mt-2" />
-      </View>
-      <View className="flex-row justify-between items-center">
-        <ShimmerEffect width={80} height={12} className="rounded" />
-        <ShimmerEffect width={60} height={28} className="rounded" />
+  <View className="bg-white p-4 mb-3 shadow-sm rounded-2xl border border-gray-50">
+    
+    {/* Top Section Mirror: Media & Metadata Info Row */}
+    <View className="flex-row items-center pb-3.5 border-b border-gray-50/80">
+      {/* Thumbnail Box */}
+      <ShimmerEffect width={85} height={85} className="rounded-xl" />
+      
+      {/* Content Meta Column */}
+      <View className="flex-1 ml-4 h-[85px] justify-between">
+        <View>
+          <View className="flex-row justify-between items-center">
+            {/* Title Line */}
+            <ShimmerEffect width="65%" height={14} className="rounded" />
+            {/* Chevron Cue */}
+            <ShimmerEffect width={12} height={12} className="rounded-full" />
+          </View>
+          {/* Location Line */}
+          <ShimmerEffect width="40%" height={10} className="rounded mt-2" />
+        </View>
+
+        <View className="flex-row items-center justify-between">
+          {/* Category Tag */}
+          <ShimmerEffect width={55} height={16} className="rounded" />
+          {/* Price Tag */}
+          <ShimmerEffect width={75} height={14} className="rounded" />
+        </View>
       </View>
     </View>
+
+    {/* Bottom Section Mirror: Inline Actions Shelf */}
+    <View className="flex-row items-center justify-between mt-3">
+      {/* Toggle Button Container */}
+      <ShimmerEffect width="72%" height={40} className="rounded-xl" />
+      {/* Trash Button Container */}
+      <ShimmerEffect width="22%" height={40} className="rounded-xl" />
+    </View>
+
   </View>
 );
 
@@ -73,6 +99,7 @@ export default function MyAccommodationsScreen() {
   const router = useRouter();
   const [myItems, setMyItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMyAccommodations();
@@ -118,7 +145,6 @@ export default function MyAccommodationsScreen() {
 
               if (error) throw error;
 
-              // Update local state to remove the item immediately
               setMyItems((prev) => prev.filter((item) => item.id !== id));
             } catch (error) {
               console.error('Error deleting:', error);
@@ -130,7 +156,32 @@ export default function MyAccommodationsScreen() {
     );
   };
 
-  const renderItem = ({ item }: { item: any }) => {
+  const toggleRentedStatus = async (id: string, currentStatus: string) => {
+    const isRented = currentStatus?.toLowerCase() === 'rented';
+    const newStatus = isRented ? 'active' : 'rented';
+    
+    try {
+      setUpdatingId(id);
+      const { error } = await supabase
+        .from('accommodations')
+        .update({ status: newStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setMyItems((prev) => 
+        prev.map((item) => item.id === id ? { ...item, status: newStatus } : item)
+      );
+    } catch (error) {
+      console.error('Error toggling status:', error);
+      Alert.alert("Error", "Could not update availability status.");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // --- MEMOIZED RENDER ITEM COMPONENT ---
+  const renderItem = useCallback(({ item }: { item: any }) => {
     const imageKey = Array.isArray(item.images) && item.images.length > 0 
       ? item.images[0] 
       : item.images;
@@ -139,33 +190,43 @@ export default function MyAccommodationsScreen() {
       ? `https://xaevvkjdcmcioswzalyr.supabase.co/storage/v1/object/public/accommodation_listings/${imageKey}`
       : null;
 
+    const isRented = item.status?.toLowerCase() === 'rented';
+    const isCurrentlyUpdating = updatingId === item.id;
+
     return (
-      // Changed outer wrapper to View to stop entire card from dimming
-      <View className="bg-white flex-row p-4 mb-3 items-center shadow-sm rounded-2xl border border-gray-50">
+      <View className="bg-white p-4 mb-3 shadow-sm rounded-2xl border border-gray-50">
         
-        {/* Navigation Area: User clicks this to edit */}
+        {/* Top Info Section (Navigates to Full Page / Edit Mode) */}
         <TouchableOpacity 
           activeOpacity={0.7}
           onPress={() => router.push(`/accommodation/${item.id}`)}
-          className="flex-row flex-1 items-center"
+          className="flex-row items-center pb-3.5 border-b border-gray-50/80"
         >
-          <Image
-            source={displayImage ? { uri: displayImage } : require("../../assets/profile.png")}
-            style={{ width: 90, height: 90, borderRadius: 12 }}
-            contentFit="cover"
-            transition={200}
-          />
+          <View style={{ width: 85, height: 85, position: 'relative' }}>
+            <Image
+              source={displayImage ? { uri: displayImage } : require("../../assets/profile.png")}
+              style={{ width: 85, height: 85, borderRadius: 12 }}
+              contentFit="cover"
+              transition={200}
+            />
+            {isRented && (
+              <View className="absolute bottom-0 left-0 right-0 bg-orange-50 py-0.5 rounded-b-[12px] items-center border-t border-white/20">
+                <Text className="text-orange-600 font-black text-[8px] uppercase tracking-wider">
+                  Rented
+                </Text>
+              </View>
+            )}
+          </View>
 
-          <View className="flex-1 ml-4 h-[90px] justify-between">
+          <View className="flex-1 ml-4 h-[85px] justify-between">
             <View>
               <View className="flex-row justify-between items-center">
-                <Text className="text-gray-900 font-bold text-[14px] flex-1" numberOfLines={1}>
+                <Text className="text-gray-900 font-extrabold text-[14px] flex-1" numberOfLines={1}>
                   {item.title || "Untitled Property"}
                 </Text>
-                {/* Visual cue that the card is still interactive for editing */}
                 <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
               </View>
-              <Text className="text-gray-500 text-[11px] mt-1" numberOfLines={2}>
+              <Text className="text-gray-500 text-[11px] mt-0.5" numberOfLines={1}>
                 {item.location || "Location not specified"}
               </Text>
             </View>
@@ -177,23 +238,56 @@ export default function MyAccommodationsScreen() {
                 </Text>
               </View>
               <Text className="text-gray-900 font-black text-[12px]">
-                ₦{item.price?.toLocaleString()}<Text className="text-[10px] font-medium text-gray-500">{item.rent_period ? ` / ${item.rent_period.toLowerCase()}` : ''}</Text>
+                ₦{item.price?.toLocaleString()}
+                <Text className="text-[10px] font-medium text-gray-500">
+                  {item.rent_period ? ` / ${item.rent_period.toLowerCase()}` : ''}
+                </Text>
               </Text>
             </View>
           </View>
         </TouchableOpacity>
 
-        {/* Delete Action Button */}
-        <TouchableOpacity 
-          onPress={() => handleDelete(item.id)}
-          className="ml-2 p-2 bg-red-50 rounded-full"
-          activeOpacity={0.6}
-        >
-          <Ionicons name="trash-outline" size={20} color="#ef4444" />
-        </TouchableOpacity>
+        {/* Bottom Inline Actions Shelf (Sits Cleanly Below Title & Price) */}
+        <View className="flex-row items-center justify-between mt-3">
+          <TouchableOpacity
+            disabled={isCurrentlyUpdating}
+            onPress={() => toggleRentedStatus(item.id, item.status)}
+            activeOpacity={0.7}
+            className={`flex-1 mr-3 h-10 rounded-xl flex-row items-center justify-center border ${
+              isRented 
+                ? 'bg-orange-50/60 border-orange-100' 
+                : 'bg-gray-50 border-gray-100'
+            }`}
+          >
+            {isCurrentlyUpdating ? (
+              <ActivityIndicator size="small" color={isRented ? '#ea580c' : '#4b5563'} />
+            ) : (
+              <>
+                <Ionicons 
+                  name={isRented ? "refresh-circle-outline" : "checkmark-circle-outline"} 
+                  size={16} 
+                  color={isRented ? '#ea580c' : '#4b5563'} 
+                  style={{ marginRight: 5 }}
+                />
+                <Text className={`font-bold text-xs ${isRented ? 'text-orange-700' : 'text-gray-600'}`}>
+                  {isRented ? 'Mark Available' : 'Mark Rented'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            onPress={() => handleDelete(item.id)}
+            className="w-10 h-10 bg-red-50 rounded-xl items-center justify-center border border-red-100"
+            activeOpacity={0.6}
+          >
+            <Ionicons name="trash-outline" size={17} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
+
       </View>
     );
-  };
+  }, [updatingId]);
 
   return (
     <View className="flex-1 bg-white">
@@ -201,8 +295,10 @@ export default function MyAccommodationsScreen() {
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
-      <View style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
-            className="bg-white border-b border-gray-50 px-4 py-4 flex-row items-center justify-between">
+      <View 
+        style={{ paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }}
+        className="bg-white border-b border-gray-50 px-4 py-4 flex-row items-center justify-between"
+      >
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => router.back()} 
@@ -214,9 +310,10 @@ export default function MyAccommodationsScreen() {
         </View>
 
         <TouchableOpacity 
-            onPress={() => router.push('/add-accommodation')}
-            className="bg-primary w-9 h-9 rounded-full items-center justify-center shadow-md">
-            <Ionicons name="add" size={24} color="white" />
+          onPress={() => router.push('/add-accommodation')}
+          className="bg-primary w-9 h-9 rounded-full items-center justify-center shadow-md"
+        >
+          <Ionicons name="add" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
@@ -227,6 +324,7 @@ export default function MyAccommodationsScreen() {
             data={Array(5).fill({})}
             renderItem={() => <ListingRowSkeleton />}
             keyExtractor={(_, index) => `skel-${index}`}
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingTop: 16 }}
           />
         ) : (
@@ -234,6 +332,9 @@ export default function MyAccommodationsScreen() {
             data={myItems}
             keyExtractor={(item) => item.id.toString()}
             renderItem={renderItem}
+            initialNumToRender={6}
+            maxToRenderPerBatch={8}
+            windowSize={5}
             contentContainerStyle={{ paddingTop: 16, paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={

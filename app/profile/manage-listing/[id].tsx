@@ -15,6 +15,7 @@ export default function ManageListing() {
   const router = useRouter();
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     fetchListingDetails();
@@ -36,6 +37,31 @@ export default function ManageListing() {
       Alert.alert("Error", "Could not fetch listing details");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Toggle directly between active and sold
+  const toggleSoldStatus = async () => {
+    if (!listing) return;
+    
+    const currentStatus = listing.status?.toLowerCase() || 'active';
+    const newStatus = currentStatus === 'sold' ? 'active' : 'sold';
+
+    try {
+      setUpdatingStatus(true);
+      const { error } = await supabase
+        .from('listings')
+        .update({ status: newStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setListing((prev: any) => ({ ...prev, status: newStatus }));
+    } catch (err) {
+      console.error("Status update error:", err);
+      Alert.alert("Error", "Failed to update listing status");
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -79,6 +105,8 @@ export default function ManageListing() {
     );
   }
 
+  const isSold = listing?.status?.toLowerCase() === 'sold';
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       <Stack.Screen options={{ headerShown: false }} />
@@ -94,7 +122,7 @@ export default function ManageListing() {
           <Text className="text-xl font-bold text-gray-900">Manage Listing</Text>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
           
           {/* Image Section */}
           <View className="px-4 mt-4">
@@ -109,6 +137,7 @@ export default function ManageListing() {
           </View>
 
           <View className="px-6 mt-6">
+            
             {/* Title & Price */}
             <View className="mb-6">
               <Text className="text-2xl font-bold text-gray-900 leading-tight">
@@ -125,29 +154,65 @@ export default function ManageListing() {
               </View>
             </View>
 
+            {/* Availability Manager Block */}
+            <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Item Management</Text>
+            <View className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex-row items-center justify-between mb-6">
+              <View className="flex-1 pr-4">
+                <Text className="font-bold text-gray-900 text-sm">
+                  {isSold ? 'Marked as Sold' : 'Available for Sale'}
+                </Text>
+                <Text className="text-gray-400 text-[11px] mt-0.5">
+                  {isSold ? 'This item is hidden from the public feed.' : 'Active and visible to buyers.'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                disabled={updatingStatus}
+                onPress={toggleSoldStatus}
+                className={`px-5 py-2.5 rounded-xl flex-row items-center justify-center ${
+                  isSold ? 'bg-red-50 border border-red-100' : 'bg-green-50 border border-green-100'
+                }`}
+              >
+                {updatingStatus ? (
+                  <ActivityIndicator size="small" color={isSold ? '#ef4444' : '#16a34a'} />
+                ) : (
+                  <>
+                    <Ionicons 
+                      name={isSold ? "refresh-circle-outline" : "checkmark-circle-outline"} 
+                      size={16} 
+                      color={isSold ? '#ef4444' : '#16a34a'} 
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text className={`font-bold text-xs ${isSold ? 'text-red-600' : 'text-green-600'}`}>
+                      {isSold ? 'Re-activate' : 'Mark Sold'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
             {/* Performance Insights */}
-            {/* Performance Insights */}
-          <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Performance</Text>
-          <View className="flex-row justify-between mb-8">
-            <StatCard 
-              icon="eye-outline" 
-              label="Views" 
-              value="Coming Soon" 
-              color="#3b82f6" 
-            />
-            <StatCard 
-              icon="heart-outline" 
-              label="Saves" 
-              value="Coming Soon" 
-              color="#ef4444" 
-            />
-            <StatCard 
-              icon="share-social-outline" 
-              label="Shares" 
-              value="Coming Soon" 
-              color="#16a34a" 
-            />
-          </View>
+            <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Performance</Text>
+            <View className="flex-row justify-between mb-8">
+              <StatCard 
+                icon="eye-outline" 
+                label="Views" 
+                value="Coming Soon" 
+                color="#3b82f6" 
+              />
+              <StatCard 
+                icon="heart-outline" 
+                label="Saves" 
+                value="Coming Soon" 
+                color="#ef4444" 
+              />
+              <StatCard 
+                icon="share-social-outline" 
+                label="Shares" 
+                value="Coming Soon" 
+                color="#16a34a" 
+              />
+            </View>
 
             {/* Description Section */}
             <Text className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Item Description</Text>
@@ -168,8 +233,8 @@ export default function ManageListing() {
           </View>
         </ScrollView>
 
-        {/* STICKY BOTTOM ACTIONS: Side by Side Edit and Delete */}
-        <View className="absolute bottom-0 w-full bg-white border-t border-gray-100 px-6 py-4 flex-row items-center space-x-3 pb-8">
+        {/* STICKY BOTTOM ACTIONS */}
+        <View style={{ paddingBottom: Platform.OS === 'ios' ? 34 : 24 }} className="absolute bottom-0 w-full bg-white border-t border-gray-100 px-6 py-4 flex-row items-center space-x-3">
           <TouchableOpacity 
             onPress={() => router.push(`/create-listing?editId=${id}`)}
             className="flex-1 h-14 bg-primary rounded-2xl items-center justify-center flex-row shadow-sm"
@@ -198,8 +263,8 @@ const StatCard = ({ icon, label, value, color }: any) => (
     </View>
     <Text 
       numberOfLines={1}
-      adjustsFontSizeToFit // 👈 Prevents text from breaking the card layout
-      className="text-sm font-black text-gray-900" // Reduced from text-lg to text-sm for better fit
+      adjustsFontSizeToFit
+      className="text-sm font-black text-gray-900"
     >
       {value}
     </Text>

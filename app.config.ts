@@ -49,6 +49,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(config.plugins || []),
+    "expo-secure-store",
+    "expo-font",
     "expo-router",
     // 🔔 Explicitly add expo-notifications plugin
     [

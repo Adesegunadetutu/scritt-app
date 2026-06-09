@@ -17,6 +17,7 @@ export interface Listing {
   is_featured?: boolean;
   user_id: string; 
   dist_km?: number;
+  status: string; // 🔥 Added: tracks 'active', 'sold', 'rented', 'matched', etc.
   profiles?: {
     is_verified: boolean;
     full_name?: string; 
@@ -43,6 +44,7 @@ export interface Vehicle {
   description?: string;
   image_urls: string[] | null;
   is_available?: boolean;
+  status: string; // 🔥 Added: tracks status consistently across all tables
   condition?: string;
   transmission?: string;
   is_first_body?: boolean;
@@ -105,7 +107,7 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
       if (cachedVehicles) set({ vehicles: JSON.parse(cachedVehicles) }); 
       if (cachedSellers) set({ sellers: JSON.parse(cachedSellers) });
 
-      // 🔥 FIX: Drop loading flag immediately if data exists locally so skeletons hide gracefully
+      // Drop loading flag immediately if data exists locally so skeletons hide gracefully
       if (hasCache) {
         set({ loading: false });
       }
@@ -116,17 +118,19 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
         return;
       }
 
-      // 3️⃣ Fetch fresh data with Profile Joins for Verification Badges
+      // 3️⃣ Fetch fresh data with Profile Joins & Active Status Filters
       const [featuredRes, listingsRes, categoriesRes, vehiclesRes, sellersRes] = await Promise.all([
         supabase
           .from('listings')
           .select('*, profiles (is_verified)') 
           .eq('is_featured', true)
+          .eq('status', 'active') // 🔥 Added: Filters out unavailable featured items
           .order('created_at', { ascending: false })
           .limit(10),
         supabase
           .from('listings')
           .select('*, profiles (is_verified)')
+          .eq('status', 'active') // 🔥 Added: Keeps closed/sold properties hidden from main feed
           .order('created_at', { ascending: false }),
         supabase
           .from('categories')
@@ -135,6 +139,7 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
         supabase
           .from('vehicles') 
           .select('*, profiles (is_verified)')
+          .eq('status', 'active') // 🔥 Added: Keeps sold vehicles out of the showroom flow
           .order('created_at', { ascending: false }),
         supabase
           .from('profiles')
